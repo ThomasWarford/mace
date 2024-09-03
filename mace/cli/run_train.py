@@ -49,6 +49,16 @@ from mace.tools.utils import AtomicNumberTable
 from torch.utils.data import ConcatDataset
 from box import Box
 
+def format_number(num):
+    if num >= 1_000_000_000:
+        return f"{num / 1_000_000_000:.1f}B"
+    elif num >= 1_000_000:
+        return f"{num / 1_000_000:.1f}M"
+    elif num >= 1_000:
+        return f"{num / 1_000:.1f}K"
+    else:
+        return str(num)
+
 def main() -> None:
     args = tools.build_default_arg_parser().parse_args()
     tag = tools.get_tag(name=args.name, seed=args.seed)
@@ -256,6 +266,8 @@ def main() -> None:
             head_args.valid_set = data.dataset_from_sharded_hdf5(
                 head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank
             )
+        
+        logging.info(f"Dataset {head} size --> {format_number(len(head_args.train_set))}")
 
         # subset train ratio
         if "train_ratio" in head_args.keys():
@@ -266,6 +278,8 @@ def main() -> None:
 
             # Split the dataset
             head_args.train_set, _ = random_split(head_args.train_set, [subset_size, remaining_size])
+
+            logging.info(f"Dataset {head} subsampled size --> {format_number(len(head_args.train_set))}")
 
         # head specific train_sampler
         head_args.train_sampler = None
@@ -542,6 +556,8 @@ def main() -> None:
             radial_MLP=ast.literal_eval(args.radial_MLP),
             radial_type=args.radial_type,
             heads=heads,
+            agnostic_int=args.agnostic_int,
+            agnostic_con=args.agnostic_con,
         )
     elif args.model == "ScaleShiftMACE": # Contains more parameters than MACE
         model = modules.ScaleShiftMACE(
@@ -557,6 +573,8 @@ def main() -> None:
             radial_MLP=ast.literal_eval(args.radial_MLP),
             radial_type=args.radial_type,
             heads=heads,
+            agnostic_int=args.agnostic_int,
+            agnostic_con=args.agnostic_con,
         )
     elif args.model == "FoundationMACE":
         model = modules.ScaleShiftMACE(**model_config)
@@ -671,13 +689,22 @@ def main() -> None:
         ],
         lr=args.lr,
         amsgrad=args.amsgrad,
+        eps=args.adam_eps,
     )
 
     optimizer: torch.optim.Optimizer
-    if args.optimizer == "adamw":
+    if args.optimizer.lower() == "adamw":
         optimizer = torch.optim.AdamW(**param_options)
+    elif args.optimizer.lower() == "rmsprop":
+        param_options.pop("amsgrad")
+        optimizer = torch.optim.RMSprop(**param_options)
+    elif args.optimizer.lower() == "adam":
+        if args.adam_betas is not None:
+            param_options['betas'] = eval(args.adam_betas)
+        optimizer = torch.optim.Adam(**param_options)
     else:
         optimizer = torch.optim.Adam(**param_options)
+        logging.info(f"Optimizer {args.optimizer} not supported, using adam as default")
     if args.device == "xpu":
         logging.info("Optimzing model and optimzier for XPU")
         model, optimizer = ipex.optimize(model, optimizer=optimizer)
@@ -831,6 +858,8 @@ def main() -> None:
         distributed_model=distributed_model,
         train_sampler=train_sampler,
         rank=rank,
+        restart=args.restart,
+        log_opt=args.log_opt,
     )
 
     logging.info("Computing metrics for training, validation, and test sets")
@@ -842,7 +871,7 @@ def main() -> None:
         all_data_loaders[head] = valid_loader
 
     test_sets = {}
-    if args.train_file.endswith(".xyz"): # TODO: train_file is now in config.yaml
+    if (args.train_file is not None) and args.train_file.endswith(".xyz"): # TODO: train_file is now in config.yaml
         for name, subset in collections.tests:
             test_sets[name] = [
                 data.AtomicData.from_config(

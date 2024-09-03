@@ -31,6 +31,10 @@ from .radial import (
 )
 from .symmetric_contraction import SymmetricContraction
 
+import hydra
+from omegaconf import DictConfig, OmegaConf
+
+AGNOSTIC = False
 
 @compile_mode("script")
 class LinearNodeEmbeddingBlock(torch.nn.Module):
@@ -250,6 +254,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
         correlation: int,
         use_sc: bool = True,
         num_elements: Optional[int] = None,
+        agnostic: Optional[bool] = False
     ) -> None:
         super().__init__()
 
@@ -291,7 +296,9 @@ class InteractionBlock(torch.nn.Module):
         target_irreps: o3.Irreps,
         hidden_irreps: o3.Irreps,
         avg_num_neighbors: float,
+        gate: Optional[Callable] = torch.nn.functional.silu, 
         radial_MLP: Optional[List[int]] = None,
+        agnostic: Optional[bool] = False,
     ) -> None:
         super().__init__()
         self.node_attrs_irreps = node_attrs_irreps
@@ -304,6 +311,8 @@ class InteractionBlock(torch.nn.Module):
         if radial_MLP is None:
             radial_MLP = [64, 64, 64]
         self.radial_MLP = radial_MLP
+        self.gate = gate
+        self.agnostic = agnostic
 
         self._setup()
 
@@ -553,6 +562,88 @@ class AgnosticResidualNonlinearInteractionBlock(InteractionBlock):
 
 
 @compile_mode("script")
+class RealAgnosticInteractionGateBlock(InteractionBlock):
+
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        if not self.agnostic:
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.irreps_out, self.node_attrs_irreps, self.irreps_out
+            )
+        else:
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.irreps_out, self.node_feats_irreps, self.irreps_out
+            )
+        self.reshape = reshape_irreps(self.irreps_out)
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        message = self.linear(message) / self.avg_num_neighbors
+        if not self.agnostic:
+            message = self.skip_tp(message, node_attrs)
+        else:
+            message = self.skip_tp(message, node_feats)
+        return (
+            self.reshape(message),
+            None,
+        )  # [n_nodes, channels, (lmax + 1)**2]
+
+@compile_mode("script")
 class RealAgnosticInteractionBlock(InteractionBlock):
     def _setup(self) -> None:
         # First linear
@@ -590,11 +681,15 @@ class RealAgnosticInteractionBlock(InteractionBlock):
         self.linear = o3.Linear(
             irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
         )
-
-        # Selector TensorProduct
-        self.skip_tp = o3.FullyConnectedTensorProduct(
-            self.irreps_out, self.node_attrs_irreps, self.irreps_out
-        )
+        if not self.agnostic:
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.irreps_out, self.node_attrs_irreps, self.irreps_out
+            )
+        else:
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.irreps_out, self.node_feats_irreps, self.irreps_out
+            )
         self.reshape = reshape_irreps(self.irreps_out)
 
     def forward(
@@ -617,12 +712,87 @@ class RealAgnosticInteractionBlock(InteractionBlock):
             src=mji, index=receiver, dim=0, dim_size=num_nodes
         )  # [n_nodes, irreps]
         message = self.linear(message) / self.avg_num_neighbors
-        message = self.skip_tp(message, node_attrs)
+        if not self.agnostic:
+            message = self.skip_tp(message, node_attrs)
+        else:
+            message = self.skip_tp(message, node_feats)
         return (
             self.reshape(message),
             None,
         )  # [n_nodes, channels, (lmax + 1)**2]
 
+
+@compile_mode("script")
+class RealAgnosticResidualInteractionGateBlock(InteractionBlock):
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticResidualInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        # Selector TensorProduct
+        self.skip_tp = o3.FullyConnectedTensorProduct(
+            self.node_feats_irreps, self.node_attrs_irreps, self.hidden_irreps
+        )
+        self.reshape = reshape_irreps(self.irreps_out)
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        sc = self.skip_tp(node_feats, node_attrs)
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        message = self.linear(message) / self.avg_num_neighbors
+        return (
+            self.reshape(message),
+            sc,
+        )  # [n_nodes, channels, (lmax + 1)**2]
 
 @compile_mode("script")
 class RealAgnosticResidualInteractionBlock(InteractionBlock):

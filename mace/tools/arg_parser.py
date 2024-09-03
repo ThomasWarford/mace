@@ -104,6 +104,17 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         ],
     )
     parser.add_argument(
+        "--agnostic_int",
+        default=[False, False],
+        nargs='+'
+    )
+    parser.add_argument(
+        "--agnostic_con",
+        default=[False, False],
+        nargs='+'
+    )
+
+    parser.add_argument(
         "--r_max", help="distance cutoff (in Ang)", type=float, default=5.0
     )
     parser.add_argument(
@@ -203,7 +214,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         help="non linearity for last readout",
         type=str,
         default="silu",
-        choices=["silu", "tanh", "abs", "None"],
+        choices=["silu", "elu", "gelu", "softplus", "tanh", "abs", "None"],
     )
     parser.add_argument(
         "--scaling",
@@ -486,7 +497,28 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         help="Optimizer for parameter optimization",
         type=str,
         default="adam",
-        choices=["adam", "adamw"],
+        choices=["adam", "adamw", "adamsparse", "rmsprop"],
+    )
+    parser.add_argument(
+        "--log_opt",
+        default=False,
+        action='store_true',
+    )
+    parser.add_argument(
+        "--restart",
+        type=str,
+        default=None,
+        choices=["batch", "epoch"]
+    )
+    parser.add_argument(
+        "--adam_eps",
+        type=float,
+        default=1e-8,
+    )
+    parser.add_argument(
+        "--adam_betas",
+        type=str,
+        default=None,
     )
     parser.add_argument("--batch_size", help="batch size", type=int, default=10)
     parser.add_argument(
@@ -521,6 +553,18 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         help="Gamma of learning rate scheduler",
         type=float,
         default=0.9993,
+    )
+    parser.add_argument(
+        "--cosine_min",
+        help="Gamma of learning rate scheduler",
+        type=float,
+        default=2e-5,
+    )
+    parser.add_argument(
+        "--warmup_epochs",
+        help="Gamma of learning rate scheduler",
+        type=int,
+        default=1,
     )
     parser.add_argument(
         "--swa",

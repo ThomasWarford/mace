@@ -62,6 +62,8 @@ class MACE(torch.nn.Module):
         radial_MLP: Optional[List[int]] = None,
         radial_type: Optional[str] = "bessel",
         heads: Optional[List[str]] = ["Default"],
+        agnostic_int: Optional[List[bool]] = [False, False], # TODO: When more than two layers?
+        agnostic_con: Optional[List[bool]] = [False, False],
     ):
         super().__init__()
         self.register_buffer(
@@ -74,6 +76,8 @@ class MACE(torch.nn.Module):
             "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
         )
         self.heads = heads
+        self.agnostic_int = agnostic_int
+        self.agnostic_con = agnostic_con
         if isinstance(correlation, int):
             correlation = [correlation] * num_interactions
         # Embedding
@@ -114,6 +118,8 @@ class MACE(torch.nn.Module):
             hidden_irreps=hidden_irreps,
             avg_num_neighbors=avg_num_neighbors,
             radial_MLP=radial_MLP,
+            gate=gate,
+            agnostic=agnostic_int[0]
         )
         self.interactions = torch.nn.ModuleList([inter])
 
@@ -129,6 +135,7 @@ class MACE(torch.nn.Module):
             correlation=correlation[0],
             num_elements=num_elements,
             use_sc=use_sc_first,
+            agnostic=agnostic_con[0],
         )
         self.products = torch.nn.ModuleList([prod])
 
@@ -153,6 +160,8 @@ class MACE(torch.nn.Module):
                 hidden_irreps=hidden_irreps_out,
                 avg_num_neighbors=avg_num_neighbors,
                 radial_MLP=radial_MLP,
+                gate=gate,
+                agnostic=agnostic_int[i+1]
             )
             self.interactions.append(inter)
             prod = EquivariantProductBasisBlock(
@@ -161,6 +170,7 @@ class MACE(torch.nn.Module):
                 correlation=correlation[i + 1],
                 num_elements=num_elements,
                 use_sc=True,
+                agnostic=agnostic_con[i+1]
             )
             self.products.append(prod)
             if i == num_interactions - 2:
@@ -743,6 +753,7 @@ class AtomicDipolesMACE(torch.nn.Module):
                 )  # Select only l=1 vectors for last layer
             else:
                 hidden_irreps_out = hidden_irreps
+
             inter = interaction_cls(
                 node_attrs_irreps=node_attr_irreps,
                 node_feats_irreps=hidden_irreps,

@@ -154,6 +154,8 @@ def train(
     distributed_model: Optional[DistributedDataParallel] = None,
     train_sampler: Optional[DistributedSampler] = None,
     rank: Optional[int] = 0,
+    restart: Optional[str] = None,
+    log_opt: Optional[bool] = False,
 ):
     lowest_loss = np.inf
     valid_loss = np.inf
@@ -162,6 +164,9 @@ def train(
     keep_last = False
     if log_wandb:
         import wandb
+
+    #if restart is not None:
+    #    loss_history = {}  # loss history per batch
 
     if max_grad_norm is not None:
         logging.info(f"Using gradient clipping with tolerance={max_grad_norm:.3f}")
@@ -190,6 +195,7 @@ def train(
                 lr_scheduler.step(
                     metrics=valid_loss
                 )  # Can break if exponential LR, TODO fix that!
+            logging.info(f"latest lr --> {lr_scheduler.get_last_lr()}")
         else:
             if swa_start:
                 logging.info("Changing loss based on SWA")
@@ -200,6 +206,7 @@ def train(
             swa.model.update_parameters(model)
             if epoch > start_epoch:
                 swa.scheduler.step()
+        
 
         # Train
         if distributed:
@@ -218,7 +225,10 @@ def train(
             device=device,
             distributed_model=distributed_model,
             rank=rank,
+            restart=restart,
+            log_opt=log_opt
         )
+
         if distributed:
             torch.distributed.barrier()
 
@@ -323,6 +333,8 @@ def train_one_epoch(
     device: torch.device,
     distributed_model: Optional[DistributedDataParallel] = None,
     rank: Optional[int] = 0,
+    restart: Optional[str] = None,
+    log_opt: Optional[bool] = False,
 ) -> None:
     model_to_train = model if distributed_model is None else distributed_model
     
@@ -343,6 +355,8 @@ def train_one_epoch(
             output_args=output_args,
             max_grad_norm=max_grad_norm,
             device=device,
+            restart=restart,
+            log_opt=log_opt
         )
         opt_metrics["mode"] = "opt"
         opt_metrics["epoch"] = epoch
@@ -359,6 +373,8 @@ def take_step(
     output_args: Dict[str, bool],
     max_grad_norm: Optional[float],
     device: torch.device,
+    restart: Optional[str] = None,
+    log_opt: Optional[bool] = False,
 ) -> Tuple[float, Dict[str, Any]]:
     start_time = time.time()
     batch = batch.to(device)
@@ -373,10 +389,27 @@ def take_step(
     )
     loss = loss_fn(pred=output, ref=batch)
     loss.backward()
+
+    #if restart == "batch":
+    #    import ipdb; ipdb.set_trace()
+    #    loss_history = None
+    #    spike_flag = detect_spike(loss.item(), loss_history)
+
+    #    if spike_flag:
+    #        print(f"loss: {loss.item()}; loss history {loss_history} --> spike detected")
+    #        print(f"skip batch")
+    #        
+    #        loss_dict = {
+    #            "loss": to_numpy(loss),
+    #            "time": time.time() - start_time,
+    #        }
+    #        return loss, loss_dict
+
     if max_grad_norm is not None:
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
-    optimizer.step()
 
+    optimizer.step()
+    
     if ema is not None:
         ema.update()
 
@@ -385,7 +418,50 @@ def take_step(
         "time": time.time() - start_time,
     }
 
+    if log_opt:
+        elem_count = torch.count_nonzero(batch.node_attrs, dim=0)
+        torch.distributed.all_reduce(elem_count, op=torch.distributed.ReduceOp.SUM)
+        total_graphs = (len(batch.ptr) - 1) * torch.distributed.get_world_size()
+        total_nodes = torch.tensor(batch.batch.size(0), device=batch.batch.device)
+        torch.distributed.all_reduce(total_nodes, op=torch.distributed.ReduceOp.SUM)
+        total_nodes = total_nodes.item()
+
+        
+        exp_avg =  {k:v['exp_avg'] for k,v in optimizer.state.items()}
+        exp_avg_sq = {k:v['exp_avg_sq'] for k,v in optimizer.state.items()}
+        eps = optimizer.defaults['eps']
+        
+        if optimizer.defaults['amsgrad']:
+            max_exp_avg_sq = {k:v['max_exp_avg_sq'] for k,v in optimizer.state.items()}
+            update = {k:exp_avg[k] / (max_exp_avg_sq[k] + eps) for k,v in optimizer.state.items()}
+        else:
+            update = {k:exp_avg[k] / (exp_avg_sq[k] + eps) for k,v in optimizer.state.items()}
+
+        exp_avg_stats = {}
+        max_exp_avg_sq_stats = {}
+        exp_avg_sq_stats = {}
+        update_stats = {}
+
+        for k,v in model.named_parameters():
+            exp_avg_sq_stats[k] = {"mean": exp_avg_sq[v].mean().item(), "std": exp_avg_sq[v].std().item()}
+            if optimizer.defaults['amsgrad']:
+                max_exp_avg_sq_stats[k] = {"mean": max_exp_avg_sq[v].mean().item(), "std": max_exp_avg_sq[v].std().item()}
+            exp_avg_stats[k] = {"mean": exp_avg[v].mean().item(), "std": exp_avg[v].std().item()}
+            update_stats[k] = {"mean": update[v].mean().item(), "std": update[v].std().item()}
+
+        loss_dict['total_graphs'] = total_graphs
+        loss_dict['total_nodes'] = total_nodes
+        loss_dict['elem_count'] = elem_count
+        loss_dict['exp_avg_sq_stats'] = exp_avg_sq_stats
+        if optimizer.defaults['amsgrad']:
+            loss_dict['max_exp_avg_stats'] = max_exp_avg_sq_stats
+        loss_dict['exp_avg_stats'] = exp_avg_stats
+        loss_dict['update_stats'] = update_stats
+
     return loss, loss_dict
+
+def detec_spike(loss, loss_history):
+    pass
 
 
 def evaluate(

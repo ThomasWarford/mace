@@ -17,6 +17,8 @@ from .blocks import (
     RealAgnosticAttResidualInteractionBlock,
     RealAgnosticInteractionBlock,
     RealAgnosticResidualInteractionBlock,
+    RealAgnosticInteractionGateBlock,
+    RealAgnosticResidualInteractionGateBlock,
     ResidualElementDependentInteractionBlock,
     ScaleShiftBlock,
 )
@@ -53,9 +55,11 @@ interaction_classes: Dict[str, Type[InteractionBlock]] = {
     "AgnosticNonlinearInteractionBlock": AgnosticNonlinearInteractionBlock,
     "ResidualElementDependentInteractionBlock": ResidualElementDependentInteractionBlock,
     "AgnosticResidualNonlinearInteractionBlock": AgnosticResidualNonlinearInteractionBlock,
-    "RealAgnosticResidualInteractionBlock": RealAgnosticResidualInteractionBlock,
+    #"RealAgnosticResidualInteractionBlock": RealAgnosticResidualInteractionBlock,
+    "RealAgnosticResidualInteractionBlock": RealAgnosticResidualInteractionGateBlock,
     "RealAgnosticAttResidualInteractionBlock": RealAgnosticAttResidualInteractionBlock,
-    "RealAgnosticInteractionBlock": RealAgnosticInteractionBlock,
+    #"RealAgnosticInteractionBlock": RealAgnosticInteractionBlock,
+    "RealAgnosticInteractionBlock": RealAgnosticInteractionGateBlock,
 }
 
 scaling_classes: Dict[str, Callable] = {
@@ -68,6 +72,9 @@ gate_dict: Dict[str, Optional[Callable]] = {
     "abs": torch.abs,
     "tanh": torch.tanh,
     "silu": torch.nn.functional.silu,
+    "elu": torch.nn.functional.elu,
+    "softplus": torch.nn.functional.softplus,
+    "gelu": torch.nn.functional.gelu,
     "None": None,
 }
 
