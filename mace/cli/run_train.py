@@ -860,6 +860,7 @@ def main() -> None:
         rank=rank,
         restart=args.restart,
         log_opt=args.log_opt,
+        async_update=args.async_update,
     )
 
     logging.info("Computing metrics for training, validation, and test sets")

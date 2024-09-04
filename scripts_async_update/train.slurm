@@ -3,7 +3,7 @@
 #SBATCH --account=gax@h100           # account
 #SBATCH -C h100                      # target H100 nodes
 # Here, reservation of 3x24=72 CPUs (for 3 tasks) and 3 GPUs (1 GPU per task) on one node only:
-#SBATCH --nodes=8                    # number of node
+#SBATCH --nodes=8                     # number of node
 #SBATCH --ntasks-per-node=4          # number of MPI tasks per node (here = number of GPUs per node)
 #SBATCH --gres=gpu:4                 # number of GPUs per node (max 4 for H100 nodes)
 # Knowing that here we only reserve one GPU per task (i.e. 1/4 of GPUs),
@@ -17,7 +17,7 @@
 #SBATCH --array=0-3%1                  # Array index range
 
 # Access arguments
-bs=16
+bs=32
 lr=0.005
 gpu=32
 conf=jz_mp_config_r6.0.yaml
@@ -27,6 +27,9 @@ mlp_irreps="16x0e" # [["8x0e"], -"16x0e"-, ["32x0e"], ["64x0e"]]
 num_radial=10 # [6, [8], -10-, [12]]
 seed=123
 stress=100
+eps=0.00000001
+optim=adam
+betas="(0.9,0.999)"
 
 # Cleans out modules loaded in interactive and inherited by default
 module purge
@@ -42,7 +45,7 @@ export PATH="$PATH:/linkhome/rech/genrre01/unh55hx/.local/bin"
 DATA_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/data/multihead_dataset
 
 # Running code
-srun bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress}
+srun bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress} ${eps} ${optim} ${betas}
 
 #mace_run_train \
 #    --name="Test_Multihead_MultiGPU_SpiceMP_MACE" \

@@ -520,6 +520,11 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
     )
+    parser.add_argument(
+        "--async_update",
+        default=False,
+        action='store_true',
+    )
     parser.add_argument("--batch_size", help="batch size", type=int, default=10)
     parser.add_argument(
         "--valid_batch_size", help="Validation batch size", type=int, default=10

@@ -156,6 +156,7 @@ def train(
     rank: Optional[int] = 0,
     restart: Optional[str] = None,
     log_opt: Optional[bool] = False,
+    async_update: Optional[bool] = False,
 ):
     lowest_loss = np.inf
     valid_loss = np.inf
@@ -226,7 +227,8 @@ def train(
             distributed_model=distributed_model,
             rank=rank,
             restart=restart,
-            log_opt=log_opt
+            log_opt=log_opt,
+            async_update=async_update,
         )
 
         if distributed:
@@ -335,6 +337,7 @@ def train_one_epoch(
     rank: Optional[int] = 0,
     restart: Optional[str] = None,
     log_opt: Optional[bool] = False,
+    async_update: Optional[bool] = False,
 ) -> None:
     model_to_train = model if distributed_model is None else distributed_model
     
@@ -356,7 +359,8 @@ def train_one_epoch(
             max_grad_norm=max_grad_norm,
             device=device,
             restart=restart,
-            log_opt=log_opt
+            log_opt=log_opt,
+            async_update=async_update,
         )
         opt_metrics["mode"] = "opt"
         opt_metrics["epoch"] = epoch
@@ -375,20 +379,35 @@ def take_step(
     device: torch.device,
     restart: Optional[str] = None,
     log_opt: Optional[bool] = False,
+    async_update: Optional[bool] = False,
 ) -> Tuple[float, Dict[str, Any]]:
     start_time = time.time()
     batch = batch.to(device)
     optimizer.zero_grad(set_to_none=True)
     batch_dict = batch.to_dict()
-    output = model(
-        batch_dict,
-        training=True,
-        compute_force=output_args["forces"],
-        compute_virials=output_args["virials"],
-        compute_stress=output_args["stress"],
-    )
-    loss = loss_fn(pred=output, ref=batch)
-    loss.backward()
+
+    if async_update:
+        with model.no_sync():
+            output = model(
+                batch_dict,
+                training=True,
+                compute_force=output_args["forces"],
+                compute_virials=output_args["virials"],
+                compute_stress=output_args["stress"],
+            )
+            loss = loss_fn(pred=output, ref=batch)
+            loss.backward()
+    else:
+        output = model(
+            batch_dict,
+            training=True,
+            compute_force=output_args["forces"],
+            compute_virials=output_args["virials"],
+            compute_stress=output_args["stress"],
+        )
+        loss = loss_fn(pred=output, ref=batch)
+        loss.backward()
+
 
     #if restart == "batch":
     #    import ipdb; ipdb.set_trace()
@@ -409,7 +428,14 @@ def take_step(
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_grad_norm)
 
     optimizer.step()
-    
+
+    if async_update:
+        # sync optimizer
+        optimizer = sync_optimizer(optimizer)
+
+        # sync weights
+        model = sync_model(model)
+
     if ema is not None:
         ema.update()
 
@@ -460,9 +486,21 @@ def take_step(
 
     return loss, loss_dict
 
+def sync_optimizer(optimizer):
+    state_dict = optimizer.state
+    for k, v in state_dict:
+        sync_state_dict(v)
+
+def sync_model(model):
+    state_dict = model.state_dict()
+    sync_state_dict(state_dict)
+
+def sync_state_dict(state_dict):
+    for k,v in state_dict.items():
+        torch.distributed.all_reduce(v, op=torch.distributed.ReduceOp.AVG)
+
 def detec_spike(loss, loss_history):
     pass
-
 
 def evaluate(
     model: torch.nn.Module,

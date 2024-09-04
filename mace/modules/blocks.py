@@ -264,6 +264,7 @@ class EquivariantProductBasisBlock(torch.nn.Module):
             irreps_out=target_irreps,
             correlation=correlation,
             num_elements=num_elements,
+            agnostic=agnostic,
         )
         # Update linear
         self.linear = o3.Linear(
@@ -608,10 +609,11 @@ class RealAgnosticInteractionGateBlock(InteractionBlock):
                 self.irreps_out, self.node_attrs_irreps, self.irreps_out
             )
         else:
-            # Selector TensorProduct
-            self.skip_tp = o3.FullyConnectedTensorProduct(
-                self.irreps_out, self.node_feats_irreps, self.irreps_out
-            )
+            ## Selector TensorProduct
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass
         self.reshape = reshape_irreps(self.irreps_out)
 
     def forward(
@@ -637,7 +639,8 @@ class RealAgnosticInteractionGateBlock(InteractionBlock):
         if not self.agnostic:
             message = self.skip_tp(message, node_attrs)
         else:
-            message = self.skip_tp(message, node_feats)
+            # message = self.skip_tp(message, node_feats)
+            pass
         return (
             self.reshape(message),
             None,
@@ -687,9 +690,10 @@ class RealAgnosticInteractionBlock(InteractionBlock):
                 self.irreps_out, self.node_attrs_irreps, self.irreps_out
             )
         else:
-            self.skip_tp = o3.FullyConnectedTensorProduct(
-                self.irreps_out, self.node_feats_irreps, self.irreps_out
-            )
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass # remove
         self.reshape = reshape_irreps(self.irreps_out)
 
     def forward(
@@ -715,7 +719,8 @@ class RealAgnosticInteractionBlock(InteractionBlock):
         if not self.agnostic:
             message = self.skip_tp(message, node_attrs)
         else:
-            message = self.skip_tp(message, node_feats)
+            #message = self.skip_tp(message, node_feats)
+            pass # remove
         return (
             self.reshape(message),
             None,

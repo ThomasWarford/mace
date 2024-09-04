@@ -32,6 +32,7 @@ class SymmetricContraction(CodeGenMixin, torch.nn.Module):
         internal_weights: Optional[bool] = None,
         shared_weights: Optional[bool] = None,
         num_elements: Optional[int] = None,
+        agnostic: Optional[bool] = False,
     ) -> None:
         super().__init__()
 
@@ -49,7 +50,7 @@ class SymmetricContraction(CodeGenMixin, torch.nn.Module):
 
         del irreps_in, irreps_out
 
-        if not isinstance(correlation, tuple):
+        if not isinstance(correlation, tuple): # NOTE: why tuple?
             corr = correlation
             correlation = {}
             for irrep_out in self.irreps_out:
@@ -66,9 +67,10 @@ class SymmetricContraction(CodeGenMixin, torch.nn.Module):
         del internal_weights, shared_weights
 
         self.contractions = torch.nn.ModuleList()
+        self.contraction_cls = AgnosticContraction if agnostic else Contraction
         for irrep_out in self.irreps_out:
             self.contractions.append(
-                Contraction(
+                self.contraction_cls(
                     irreps_in=self.irreps_in,
                     irrep_out=o3.Irreps(str(irrep_out.ir)),
                     correlation=correlation[irrep_out],
@@ -119,8 +121,9 @@ class Contraction(torch.nn.Module):
         for i in range(correlation, 0, -1):
             # Shapes definying
             num_params = self.U_tensors(i).size()[-1]
-            num_equivariance = 2 * irrep_out.lmax + 1
+            num_equivariance = 2 * irrep_out.lmax + 1 # NOTE: why irrep_out lmax?
             num_ell = self.U_tensors(i).size()[-2]
+
 
             if i == correlation:
                 parse_subscript_main = (
@@ -130,9 +133,13 @@ class Contraction(torch.nn.Module):
                 )
                 graph_module_main = torch.fx.symbolic_trace(
                     lambda x, y, w, z: torch.einsum(
-                        "".join(parse_subscript_main), x, y, w, z
+                        "".join(parse_subscript_main), x, y, w, z # x: U tensor | y: weights | w: input irreps | z: element type
                     )
                 )
+                """
+                ipdb> "".join(parse_subscript_main)
+                'wxvik,ekc,bci,be -> bcwxv'
+                """
 
                 # Optimizing the contractions
                 self.graph_opt_main = opt_einsum_fx.optimize_einsums_full(
@@ -169,12 +176,25 @@ class Contraction(torch.nn.Module):
                 # Symbolic tracing of contractions
                 graph_module_weighting = torch.fx.symbolic_trace(
                     lambda x, y, z: torch.einsum(
-                        "".join(parse_subscript_weighting), x, y, z
+                        "".join(parse_subscript_weighting), x, y, z  # x: U tensor | y: weights | z: element type
                     )
                 )
                 graph_module_features = torch.fx.symbolic_trace(
-                    lambda x, y: torch.einsum("".join(parse_subscript_features), x, y)
+                    lambda x, y: torch.einsum("".join(parse_subscript_features), x, y) # x: c_tensor + out_last_corr | y: input irreps
                 )
+                
+                """
+                ipdb> "".join(parse_subscript_weighting)
+                'wxvk,ekc,be->bcwxv'
+                ipdb> "".join(parse_subscript_features)
+                'bcwxi,bci->bcwx'
+
+
+                ipdb> "".join(parse_subscript_weighting)
+                'wxk,ekc,be->bcwx'
+                ipdb> "".join(parse_subscript_features)
+                'bcwi,bci->bcw'
+                """
 
                 # Optimizing the contractions
                 graph_opt_weighting = opt_einsum_fx.optimize_einsums_full(
@@ -224,10 +244,177 @@ class Contraction(torch.nn.Module):
                 weight,
                 y,
             )
-            c_tensor = c_tensor + out
+            c_tensor = c_tensor + out 
             out = contract_features(c_tensor, x)
 
         return out.view(out.shape[0], -1)
 
     def U_tensors(self, nu: int):
         return dict(self.named_buffers())[f"U_matrix_{nu}"]
+
+
+@compile_mode("script")
+class AgnosticContraction(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_in: o3.Irreps,
+        irrep_out: o3.Irreps,
+        correlation: int,
+        internal_weights: bool = True,
+        weights: Optional[torch.Tensor] = None,
+        **kwargs,
+    ) -> None:
+        super().__init__()
+
+        self.num_features = irreps_in.count((0, 1))
+        self.coupling_irreps = o3.Irreps([irrep.ir for irrep in irreps_in])
+        self.correlation = correlation
+        dtype = torch.get_default_dtype()
+        for nu in range(1, correlation + 1):
+            U_matrix = U_matrix_real(
+                irreps_in=self.coupling_irreps,
+                irreps_out=irrep_out,
+                correlation=nu,
+                dtype=dtype,
+            )[-1]
+            self.register_buffer(f"U_matrix_{nu}", U_matrix)
+
+        # Tensor contraction equations
+        self.contractions_weighting = torch.nn.ModuleList()
+        self.contractions_features = torch.nn.ModuleList()
+
+        # Create weight for product basis
+        self.weights = torch.nn.ParameterList([])
+
+        for i in range(correlation, 0, -1):
+            # Shapes definying
+            num_params = self.U_tensors(i).size()[-1]
+            num_equivariance = 2 * irrep_out.lmax + 1 # NOTE: why irrep_out lmax?
+            num_ell = self.U_tensors(i).size()[-2]
+
+            if i == correlation:
+                parse_subscript_main = (
+                    [ALPHABET[j] for j in range(i + min(irrep_out.lmax, 1) - 1)]
+                    + ["ik,kc,bci -> bc"]
+                    + [ALPHABET[j] for j in range(i + min(irrep_out.lmax, 1) - 1)]
+                )
+                graph_module_main = torch.fx.symbolic_trace(
+                    lambda x, y, w: torch.einsum(
+                        "".join(parse_subscript_main), x, y, w # x: U tensor | y: weights | w: input irreps
+                    )
+                )
+                """
+                ipdb> "".join(parse_subscript_main)
+                'wxvik,ekc,bci,be -> bcwxv'
+                """
+
+                # Optimizing the contractions
+                self.graph_opt_main = opt_einsum_fx.optimize_einsums_full(
+                    model=graph_module_main,
+                    example_inputs=(
+                        torch.randn(
+                            [num_equivariance] + [num_ell] * i + [num_params]
+                        ).squeeze(0),
+                        torch.randn((num_params, self.num_features)),
+                        torch.randn((BATCH_EXAMPLE, self.num_features, num_ell)),
+                    ),
+                )
+                # Parameters for the product basis
+                w = torch.nn.Parameter(
+                    torch.randn((num_params, self.num_features))
+                    / num_params
+                )
+                self.weights_max = w
+            else:
+                # Generate optimized contractions equations
+                parse_subscript_weighting = (
+                    [ALPHABET[j] for j in range(i + min(irrep_out.lmax, 1))]
+                    + ["k,kc->c"]
+                    + [ALPHABET[j] for j in range(i + min(irrep_out.lmax, 1))]
+                )
+                parse_subscript_features = (
+                    ["bc"]
+                    + [ALPHABET[j] for j in range(i - 1 + min(irrep_out.lmax, 1))]
+                    + ["i,bci->bc"]
+                    + [ALPHABET[j] for j in range(i - 1 + min(irrep_out.lmax, 1))]
+                )
+
+                # Symbolic tracing of contractions
+                graph_module_weighting = torch.fx.symbolic_trace(
+                    lambda x, y: torch.einsum(
+                        "".join(parse_subscript_weighting), x, y  # x: U tensor | y: weights
+                    )
+                )
+                graph_module_features = torch.fx.symbolic_trace(
+                    lambda x, y: torch.einsum("".join(parse_subscript_features), x, y) # x: c_tensor + out_last_corr | y: input irreps
+                )
+                
+                """
+                ipdb> "".join(parse_subscript_weighting)
+                'wxvk,ekc,be->bcwxv'
+                ipdb> "".join(parse_subscript_features)
+                'bcwxi,bci->bcwx'
+
+
+                ipdb> "".join(parse_subscript_weighting)
+                'wxk,ekc,be->bcwx'
+                ipdb> "".join(parse_subscript_features)
+                'bcwi,bci->bcw'
+                """
+
+                # Optimizing the contractions
+                graph_opt_weighting = opt_einsum_fx.optimize_einsums_full(
+                    model=graph_module_weighting,
+                    example_inputs=(
+                        torch.randn(
+                            [num_equivariance] + [num_ell] * i + [num_params]
+                        ).squeeze(0),
+                        torch.randn((num_params, self.num_features)),
+                    ),
+                )
+                graph_opt_features = opt_einsum_fx.optimize_einsums_full(
+                    model=graph_module_features,
+                    example_inputs=(
+                        torch.randn(
+                            [BATCH_EXAMPLE, self.num_features, num_equivariance]
+                            + [num_ell] * i
+                        ).squeeze(2),
+                        torch.randn((BATCH_EXAMPLE, self.num_features, num_ell)),
+                    ),
+                )
+                self.contractions_weighting.append(graph_opt_weighting)
+                self.contractions_features.append(graph_opt_features)
+                # Parameters for the product basis
+                w = torch.nn.Parameter(
+                    torch.randn((num_params, self.num_features))
+                    / num_params
+                )
+                self.weights.append(w)
+        
+        if not internal_weights:
+            self.weights = weights[:-1]
+            self.weights_max = weights[-1]
+
+    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None):
+        out = self.graph_opt_main(
+            self.U_tensors(self.correlation),
+            self.weights_max,
+            x,
+        )
+        for i, (weight, contract_weights, contract_features) in enumerate(
+            zip(self.weights, self.contractions_weighting, self.contractions_features)
+        ):
+            c_tensor = contract_weights(
+                self.U_tensors(self.correlation - i - 1),
+                weight,
+            )
+            c_tensor = c_tensor + out 
+            out = contract_features(c_tensor, x)
+
+        return out.view(out.shape[0], -1)
+
+    def U_tensors(self, nu: int):
+        return dict(self.named_buffers())[f"U_matrix_{nu}"]
+
+if __name__ == "__main__":
+    contract = Contraction(irreps_in=o3.Irreps("8x0e+4x1o+2x2e+1x3o"), irrep_out=o3.Irreps("4x1o"), correlation=3, num_elements=89)
