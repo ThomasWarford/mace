@@ -32,3 +32,13 @@ class DistributedEnvironment:
         )
         os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]
         os.environ["RANK"] = os.environ["SLURM_PROCID"]
+
+class AsyncDistributedEnvironment:
+    def __init__(self):
+        self.master_addr = os.environ["MASTER_ADDR"]
+        self.master_port = os.environ["MASTER_PORT"]
+        self.world_size = int(os.environ["WORLD_SIZE"])
+        os.environ["LOCAL_RANK"] = os.environ["SLURM_LOCALID"]
+        self.local_rank = int(os.environ["LOCAL_RANK"])
+        self.rank = int(os.environ["RANK"])
+

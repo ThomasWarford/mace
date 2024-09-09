@@ -603,7 +603,7 @@ class RealAgnosticInteractionGateBlock(InteractionBlock):
             irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
         )
 
-        if not self.agnostic:
+        if not getattr(self, "agnostic", False):
             # Selector TensorProduct
             self.skip_tp = o3.FullyConnectedTensorProduct(
                 self.irreps_out, self.node_attrs_irreps, self.irreps_out
@@ -636,7 +636,7 @@ class RealAgnosticInteractionGateBlock(InteractionBlock):
             src=mji, index=receiver, dim=0, dim_size=num_nodes
         )  # [n_nodes, irreps]
         message = self.linear(message) / self.avg_num_neighbors
-        if not self.agnostic:
+        if not getattr(self, "agnostic", False):
             message = self.skip_tp(message, node_attrs)
         else:
             # message = self.skip_tp(message, node_feats)
@@ -684,7 +684,7 @@ class RealAgnosticInteractionBlock(InteractionBlock):
         self.linear = o3.Linear(
             irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
         )
-        if not self.agnostic:
+        if not getattr(self, "agnostic", False):
             # Selector TensorProduct
             self.skip_tp = o3.FullyConnectedTensorProduct(
                 self.irreps_out, self.node_attrs_irreps, self.irreps_out
@@ -716,7 +716,7 @@ class RealAgnosticInteractionBlock(InteractionBlock):
             src=mji, index=receiver, dim=0, dim_size=num_nodes
         )  # [n_nodes, irreps]
         message = self.linear(message) / self.avg_num_neighbors
-        if not self.agnostic:
+        if not getattr(self, "agnostic", False):
             message = self.skip_tp(message, node_attrs)
         else:
             #message = self.skip_tp(message, node_feats)

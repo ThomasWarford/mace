@@ -11,15 +11,19 @@ MLP_IRREPS=$8
 SEED=$9
 ROOT_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/mace_multi_head_interface
 conf_str="${CONF%.yaml}"
-stress=${10}
+strees=${10}
+eps=${11}
+optim=${12}
+betas=${13}
+
 cd $ROOT_DIR
 mace_run_train \
-    --name="MACE_medium_stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_agnesi_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_agnostic_rm_int_con_firstlayer" \
+    --name="MACE_medium_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_agnesi_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_strees${strees}_eps${eps}_stability_investigation_optim${optim}_betas${betas}" \
     --loss='universal' \
     --energy_weight=1 \
     --forces_weight=10 \
     --compute_stress=True \
-    --stress_weight=${stress} \
+    --stress_weight=${strees} \
     --eval_interval=1 \
     --error_table='PerAtomMAE' \
     --model="MACE" \
@@ -43,7 +47,7 @@ mace_run_train \
     --valid_batch_size=32 \
     --pair_repulsion \
     --distance_transform="Agnesi" \
-    --max_num_epochs=300 \
+    --max_num_epochs=100 \
     --patience=40 \
     --amsgrad \
     --seed=${SEED} \
@@ -55,7 +59,7 @@ mace_run_train \
     --device=cuda \
     --num_workers=8 \
     --distributed \
-    --agnostic_int True False \
-    --agnostic_con True False \
-
+    --adam_eps=${eps} \
+    --optimizer=${optim} \
+    --adam_betas=${betas} \
 # --name="MACE_medium_agnesi_b32_origin_mponly" \

@@ -488,7 +488,7 @@ def take_step(
 
 def sync_optimizer(optimizer):
     state_dict = optimizer.state
-    for k, v in state_dict:
+    for k, v in state_dict.items():
         sync_state_dict(v)
 
 def sync_model(model):
@@ -497,7 +497,14 @@ def sync_model(model):
 
 def sync_state_dict(state_dict):
     for k,v in state_dict.items():
-        torch.distributed.all_reduce(v, op=torch.distributed.ReduceOp.AVG)
+        if v.device.type.startswith("cpu"):
+            continue
+        if not v.is_contiguous():
+            continue
+        try:
+            torch.distributed.all_reduce(v, op=torch.distributed.ReduceOp.AVG)
+        except:
+            import ipdb; ipdb.set_trace()
 
 def detec_spike(loss, loss_history):
     pass

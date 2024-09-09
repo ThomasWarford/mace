@@ -40,7 +40,7 @@ from mace.tools.scripts_utils import (
     dict_to_array,
     check_folder_subfolder,
 )
-from mace.tools.slurm_distributed import DistributedEnvironment
+from mace.tools.slurm_distributed import DistributedEnvironment, AsyncDistributedEnvironment
 from mace.tools.finetuning_utils import (
     load_foundations_elements,
     extract_config_mace_model,
@@ -72,7 +72,11 @@ def main() -> None:
             )
     if args.distributed:
         try:
-            distr_env = DistributedEnvironment()
+            if args.async_start:
+                distr_env = AsyncDistributedEnvironment()
+            else:
+                distr_env = DistributedEnvironment()
+
         except Exception as e:  # pylint: disable=W0703
             logging.error(f"Failed to initialize distributed environment: {e}")
             return
