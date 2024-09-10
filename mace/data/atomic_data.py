@@ -4,7 +4,7 @@
 # This program is distributed under the MIT License (see MIT.md)
 ###########################################################################################
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union, Mapping, Tuple
 
 import torch.utils.data
 
@@ -114,7 +114,7 @@ class AtomicData(torch_geometric.data.Data):
         cls,
         config: Configuration,
         z_table: AtomicNumberTable,
-        cutoff: float,
+        cutoff: Union[float, Mapping],
         heads: Optional[list] = ["Default"],
     ) -> "AtomicData":
         edge_index, shifts, unit_shifts = get_neighborhood(

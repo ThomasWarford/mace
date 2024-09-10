@@ -6,7 +6,7 @@
 
 import argparse
 import os
-from typing import Optional
+from typing import Optional, Union
 
 
 def build_default_arg_parser() -> argparse.ArgumentParser:
@@ -106,16 +106,18 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--agnostic_int",
         default=[False, False],
-        nargs='+'
+        nargs='+',
+        type=list_of_bools,
     )
     parser.add_argument(
         "--agnostic_con",
         default=[False, False],
-        nargs='+'
+        nargs='+',
+        type=list_of_bools,
     )
 
     parser.add_argument(
-        "--r_max", help="distance cutoff (in Ang)", type=float, default=5.0
+        "--r_max", help="distance cutoff (in Ang)", type=float_or_str, default=5.0
     )
     parser.add_argument(
         "--radial_type",
@@ -870,3 +872,13 @@ def check_float_or_none(value: str) -> Optional[float]:
                 f"{value} is an invalid value (float or None)"
             ) from None
         return None
+
+def float_or_str(value: str) -> Union[float, str]:
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+def list_of_bools(value: str) -> bool:
+    return eval(value)
+    

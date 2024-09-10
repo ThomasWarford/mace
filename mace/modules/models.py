@@ -42,7 +42,7 @@ from .utils import (
 class MACE(torch.nn.Module):
     def __init__(
         self,
-        r_max: float,
+        r_max: Union[float, np.ndarray],
         num_bessel: int,
         num_polynomial_cutoff: int,
         max_ell: int,
@@ -72,6 +72,7 @@ class MACE(torch.nn.Module):
         self.register_buffer(
             "r_max", torch.tensor(r_max, dtype=torch.get_default_dtype())
         )
+
         self.register_buffer(
             "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
         )

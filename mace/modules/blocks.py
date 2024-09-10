@@ -209,7 +209,7 @@ class AtomicEnergiesBlock(torch.nn.Module):
 class RadialEmbeddingBlock(torch.nn.Module):
     def __init__(
         self,
-        r_max: float,
+        r_max: Union[float, np.ndarray],
         num_bessel: int,
         num_polynomial_cutoff: int,
         radial_type: str = "bessel",

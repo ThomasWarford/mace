@@ -22,6 +22,7 @@ from tqdm import tqdm
 from functools import partial
 tqdm = partial(tqdm, ncols=55)
 import torch.distributed as dist
+import torch_geometric
 
 def compute_forces(
     energy: torch.Tensor, positions: torch.Tensor, training: bool = True

@@ -9,6 +9,8 @@ import numpy as np
 import torch
 from e3nn.util.jit import compile_mode
 
+from typing import Union
+
 from mace.tools.compile import simplify_if_compile
 from mace.tools.scatter import scatter_sum
 
@@ -117,25 +119,47 @@ class PolynomialCutoff(torch.nn.Module):
     p: torch.Tensor
     r_max: torch.Tensor
 
-    def __init__(self, r_max: float, p=6):
+    def __init__(self, r_max: Union[float, np.ndarray], p=6):
         super().__init__()
         self.register_buffer("p", torch.tensor(p, dtype=torch.get_default_dtype()))
         self.register_buffer(
             "r_max", torch.tensor(r_max, dtype=torch.get_default_dtype())
         )
+        self.elem_dept = (len(self.r_max.shape) == 2)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, 
+            x: torch.Tensor,
+            node_attrs: torch.Tensor = None,
+            edge_index: torch.Tensor = None,
+            atomic_numbers: torch.Tensor = None,
+            ) -> torch.Tensor:
         # yapf: disable
-        envelope = (
-                1.0
-                - ((self.p + 1.0) * (self.p + 2.0) / 2.0) * torch.pow(x / self.r_max, self.p)
-                + self.p * (self.p + 2.0) * torch.pow(x / self.r_max, self.p + 1)
-                - (self.p * (self.p + 1.0) / 2) * torch.pow(x / self.r_max, self.p + 2)
-        )
-        # yapf: enable
+        if not self.elem_dept:
+            envelope = (
+                    1.0
+                    - ((self.p + 1.0) * (self.p + 2.0) / 2.0) * torch.pow(x / self.r_max, self.p)
+                    + self.p * (self.p + 2.0) * torch.pow(x / self.r_max, self.p + 1)
+                    - (self.p * (self.p + 1.0) / 2) * torch.pow(x / self.r_max, self.p + 2)
+            )
+            # yapf: enable
+            return envelope * (x < self.r_max)
+        else:
+            sender = edge_index[0]
+            receiver = edge_index[1]
+            node_atomic_numbers = atomic_numbers[torch.argmax(node_attrs, dim=1)].unsqueeze(
+                -1
+            )
+            Z_u = node_atomic_numbers[sender]
+            Z_v = node_atomic_numbers[receiver]
 
-        # noinspection PyUnresolvedReferences
-        return envelope * (x < self.r_max)
+            r_max = self.r_max[Z_u][Z_v]
+            envelope = (
+                    1.0
+                    - ((self.p + 1.0) * (self.p + 2.0) / 2.0) * torch.pow(x / self.r_max, self.p)
+                    + self.p * (self.p + 2.0) * torch.pow(x / self.r_max, self.p + 1)
+                    - (self.p * (self.p + 1.0) / 2) * torch.pow(x / self.r_max, self.p + 2)
+            )
+            return envelope * (x < r_max)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(p={self.p}, r_max={self.r_max})"
@@ -146,12 +170,12 @@ class ZBLBasis(torch.nn.Module):
     """
     Implementation of the Ziegler-Biersack-Littmark (ZBL) potential
     """
-
     p: torch.Tensor
     r_max: torch.Tensor
 
-    def __init__(self, r_max: float, p=6, trainable=False):
+    def __init__(self, r_max: Union[float, np.ndarray], p=6, trainable=False):
         super().__init__()
+
         self.register_buffer(
             "r_max", torch.tensor(r_max, dtype=torch.get_default_dtype())
         )

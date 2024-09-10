@@ -12,8 +12,9 @@ import os
 from pathlib import Path
 from typing import Optional
 import urllib.request
+import itertools
 
-
+import ase
 import numpy as np
 import torch.distributed
 import torch.nn.functional
@@ -143,6 +144,19 @@ def main() -> None:
     if args.heads is not None:
         args.heads = Box(ast.literal_eval(args.heads)) # using box container for both dict and namespace access
 
+    if args.r_max == "covalent_radii":
+        radii_dict = dict()
+        scale = 0.5 * 10
+        covalent_radii = torch.tensor(ase.data.covalent_radii)
+        ne = covalent_radii.size(0)
+        r_max_matrix = (covalent_radii.repeat(ne, 1) + covalent_radii.repeat(ne, 1).t()).cpu().numpy() * scale 
+        r_max_dict = {}
+        for i in range(ne):
+            for j in range(ne):
+                r_max_dict[(i, j)] = r_max_matrix[i][j]
+        args.r_max_matrix = r_max_matrix
+        args.r_max_dict = r_max_dict
+
     for head, head_args in args.heads.items():
         logging.info(f"=============    Processing head {head}     ===========")
         
@@ -198,6 +212,15 @@ def main() -> None:
 
         # overwright args.r_max with head specific r_max
         head_args.r_max = head_args.get('r_max', args.r_max)
+        
+        if isinstance(head_args.r_max, str):
+            if head_args.r_max == "covalent_radii":
+                assert args.r_max == head_args.r_max
+                head_args.r_max = args.r_max_dict
+                head_args.r_max_matrix = args.r_max_matrix
+            else:
+                raise NotImplementedError(f"r_max type {head_args.r_max} not supported")
+                
 
     # Data preparation
     atomic_energies_dict = {k: v.E0s for k, v in args.heads.items()}
@@ -284,6 +307,10 @@ def main() -> None:
             head_args.train_set, _ = random_split(head_args.train_set, [subset_size, remaining_size])
 
             logging.info(f"Dataset {head} subsampled size --> {format_number(len(head_args.train_set))}")
+
+        if not isinstance(head_args.r_max, float):
+            # plot distributio
+            pass
 
         # head specific train_sampler
         head_args.train_sampler = None
@@ -528,8 +555,11 @@ def main() -> None:
         ), "All channels must have the same dimension, use the num_channels and max_L keywords to specify the number of channels and the maximum L"
 
         logging.info(f"Hidden irreps: {args.hidden_irreps}")
+
+        # element dependant radial
+
         model_config = dict(
-            r_max=args.r_max, # TODO: different r_max for heads
+            r_max=args.r_max if isinstance(args.r_max, float) else args.r_max_matrix, # TODO: different r_max for heads
             num_bessel=args.num_radial_basis,
             num_polynomial_cutoff=args.num_cutoff_basis,
             max_ell=args.max_ell,
