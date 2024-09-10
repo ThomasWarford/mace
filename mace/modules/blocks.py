@@ -209,19 +209,22 @@ class AtomicEnergiesBlock(torch.nn.Module):
 class RadialEmbeddingBlock(torch.nn.Module):
     def __init__(
         self,
-        r_max: Union[float, np.ndarray],
+        r_max: Union[float, np.ndarray, torch.Tensor],
         num_bessel: int,
         num_polynomial_cutoff: int,
         radial_type: str = "bessel",
         distance_transform: str = "None",
     ):
         super().__init__()
+        self.elem_dept = not isinstance(r_max, float)
+        if self.elem_dept:
+            bessel_fn_r_max = 6.0 # TODO: change to element dependent
         if radial_type == "bessel":
-            self.bessel_fn = BesselBasis(r_max=r_max, num_basis=num_bessel)
+            self.bessel_fn = BesselBasis(r_max=bessel_fn_r_max, num_basis=num_bessel)
         elif radial_type == "gaussian":
-            self.bessel_fn = GaussianBasis(r_max=r_max, num_basis=num_bessel)
+            self.bessel_fn = GaussianBasis(r_max=bessel_fn_r_max, num_basis=num_bessel)
         elif radial_type == "chebyshev":
-            self.bessel_fn = ChebychevBasis(r_max=r_max, num_basis=num_bessel)
+            self.bessel_fn = ChebychevBasis(r_max=bessel_fn_r_max, num_basis=num_bessel)
         if distance_transform == "Agnesi":
             self.distance_transform = AgnesiTransform()
         elif distance_transform == "Soft":
@@ -236,7 +239,10 @@ class RadialEmbeddingBlock(torch.nn.Module):
         edge_index: torch.Tensor,
         atomic_numbers: torch.Tensor,
     ):
-        cutoff = self.cutoff_fn(edge_lengths)  # [n_edges, 1]
+        if getattr(self, "elem_dept", False):
+            cutoff = self.cutoff_fn(edge_lengths, node_attrs, edge_index, atomic_numbers)  # [n_edges, 1]
+        else:
+            cutoff = self.cutoff_fn(edge_lengths)  # [n_edges, 1]
         if hasattr(self, "distance_transform"):
             edge_lengths = self.distance_transform(
                 edge_lengths, node_attrs, edge_index, atomic_numbers

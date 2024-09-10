@@ -88,7 +88,7 @@ class MACE(torch.nn.Module):
             irreps_in=node_attr_irreps, irreps_out=node_feats_irreps
         )
         self.radial_embedding = RadialEmbeddingBlock(
-            r_max=r_max,
+            r_max=self.r_max,
             num_bessel=num_bessel,
             num_polynomial_cutoff=num_polynomial_cutoff,
             radial_type=radial_type,

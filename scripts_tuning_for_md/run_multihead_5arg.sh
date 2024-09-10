@@ -53,7 +53,7 @@ mace_run_train \
     --save_cpu \
     --config="multihead_config/${CONF}" \
     --device=cuda \
-    --num_workers=0 \
+    --num_workers=8 \
     --distributed \
     --agnostic_int False False \
     --agnostic_con False False \
