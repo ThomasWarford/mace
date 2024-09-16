@@ -120,6 +120,9 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         "--r_max", help="distance cutoff (in Ang)", type=float_or_str, default=5.0
     )
     parser.add_argument(
+        "--r_max_scale", help="scaler only for for element dependent radius", type=float, default=20.0
+    )
+    parser.add_argument(
         "--radial_type",
         help="type of radial basis functions",
         type=str,
@@ -169,6 +172,10 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         choices=[
             "RealAgnosticResidualInteractionBlock",
             "RealAgnosticInteractionBlock",
+            "RealAgnosticDensityNormalizedInteractionBlock",
+            "RealAgnosticDensityInjuctedInteractionBlock",
+            "RealAgnosticDensityInjuctedNoScaleInteractionBlock",
+            "RealAgnosticDensityInjuctedNodeAttrAttendInteractionBlock",
         ],
     )
     parser.add_argument(

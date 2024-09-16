@@ -9,6 +9,7 @@ def get_neighborhood(
     cutoff: Union[float, dict],
     pbc: Optional[Tuple[bool, bool, bool]] = None,
     cell: Optional[np.ndarray] = None,  # [3, 3]
+    numbers: Optional[np.ndarray] = None,
     true_self_interaction=False,
 ) -> Tuple[np.ndarray, np.ndarray]:
     if pbc is None:
@@ -34,12 +35,16 @@ def get_neighborhood(
     if not pbc_z:
         cell[:, 2] = max_positions * 5 * cutoff * identity[:, 2]
 
+    if isinstance(numbers, np.ndarray):
+        numbers = numbers.astype(np.int32)
+
     sender, receiver, unit_shifts = neighbour_list(
         quantities="ijS",
         pbc=pbc,
         cell=cell,
         positions=positions,
         cutoff=cutoff,
+        numbers=numbers
         # self_interaction=True,  # we want edges from atom to itself in different periodic images
         # use_scaled_positions=False,  # positions are not scaled positions
     )

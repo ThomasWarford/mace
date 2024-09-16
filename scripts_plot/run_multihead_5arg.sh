@@ -12,11 +12,10 @@ SEED=$9
 ROOT_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/mace_multi_head_interface
 conf_str="${CONF%.yaml}"
 stress=${10}
-int_first=${11}
-agnostic_first=${12}
+r_scale=${11}
 cd $ROOT_DIR
-mace_run_train \
-    --name="MACE_medium_stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_agnesi_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_agnosticfirst-${agnostic_first}" \
+mace_plot_neighbor \
+    --name="Plot_stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_agnesi_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_r${R}_r_scale${r_scale}" \
     --loss='universal' \
     --energy_weight=1 \
     --forces_weight=10 \
@@ -25,13 +24,13 @@ mace_run_train \
     --eval_interval=1 \
     --error_table='PerAtomMAE' \
     --model="MACE" \
-    --interaction_first=${int_first} \
+    --interaction_first="RealAgnosticInteractionBlock" \
     --interaction="RealAgnosticResidualInteractionBlock" \
     --num_interactions=2 \
     --correlation=3 \
     --max_ell=3 \
     --r_max=${R} \
-    --r_max_scale=3 \
+    --r_max_scale=${r_scale} \
     --max_L=1 \
     --num_channels=${NUM_CHANNEL} \
     --num_radial_basis=${NUM_RADIAL} \
@@ -46,7 +45,7 @@ mace_run_train \
     --valid_batch_size=32 \
     --pair_repulsion \
     --distance_transform="Agnesi" \
-    --max_num_epochs=300 \
+    --max_num_epochs=100 \
     --patience=40 \
     --amsgrad \
     --seed=${SEED} \
@@ -58,7 +57,7 @@ mace_run_train \
     --device=cuda \
     --num_workers=12 \
     --distributed \
-    --agnostic_int ${agnostic_first} False \
+    --agnostic_int False False \
     --agnostic_con False False \
 
 # --name="MACE_medium_agnesi_b32_origin_mponly" \

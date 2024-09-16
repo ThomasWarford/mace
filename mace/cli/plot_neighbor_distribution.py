@@ -157,6 +157,20 @@ def main() -> None:
                 r_max_dict[(i, j)] = r_max_matrix[i][j]
         args.r_max_matrix = r_max_matrix
         args.r_max_dict = r_max_dict
+    
+    #if args.r_max == "vdw_radii":
+    #    radii_dict = dict()
+    #    scale = 0.5 * args.r_max_scale
+    #    vdw_radii = torch.tensor(ase.data.vdw_radii)
+    #    print((ase.data.vdw_radii * scale).tolist())
+    #    ne = vdw_radii.size(0)
+    #    r_max_matrix = (vdw_radii.repeat(ne, 1) + vdw_radii.repeat(ne, 1).t()).cpu().numpy() * scale 
+    #    r_max_dict = {}
+    #    for i in range(ne):
+    #        for j in range(ne):
+    #            r_max_dict[(i, j)] = r_max_matrix[i][j]
+    #    args.r_max_matrix = r_max_matrix
+    #    args.r_max_dict = r_max_dict
 
     for head, head_args in args.heads.items():
         logging.info(f"=============    Processing head {head}     ===========")
@@ -337,38 +351,111 @@ def main() -> None:
         if 'avg_num_neighbors' in head_args and head_args.avg_num_neighbors > 0:
             head_args.compute_avg_num_neighbors = False
 
-        if head_args.get("plot_neighbor_distribution", False):
-            avg_num_neighbors_per_elem, num_neighbor_per_atom = modules.compute_avg_num_neighbors_per_elem(head_args.train_loader, rank=rank)
+        if head_args.get("plot_neighbor_distribution", True):
             if args.distributed:
-                num_graphs = torch.tensor(len(head_args.train_loader.dataset)).to(device)
-                num_neighbors_per_elem = num_graphs * torch.tensor(avg_num_neighbors_per_elem).to(device)
-                torch.distributed.all_reduce(num_graphs, op=torch.distributed.ReduceOp.SUM)
-                torch.distributed.all_reduce(
-                    num_neighbors_per_elem, op=torch.distributed.ReduceOp.SUM
-                )
-                avg_num_neighbors_per_elem = num_neighbors_per_elem.cpu().numpy() / num_graphs.cpu().numpy()
+                plot_avg = False
+                plot_bar = True
+                if plot_avg:
+                    avg_num_neighbors_per_elem, std_num_neighbor_per_elem = modules.compute_avg_num_neighbors_per_elem(head_args.train_loader, rank=rank)
+                    num_graphs = torch.tensor(len(head_args.train_loader.dataset)).to(device)
+                    num_neighbors_per_elem = num_graphs * torch.tensor(avg_num_neighbors_per_elem).to(device)
+                    torch.distributed.all_reduce(num_graphs, op=torch.distributed.ReduceOp.SUM)
+                    torch.distributed.all_reduce(
+                        num_neighbors_per_elem, op=torch.distributed.ReduceOp.SUM
+                    )
+                    avg_num_neighbors_per_elem = num_neighbors_per_elem.cpu().numpy() / num_graphs.cpu().numpy()
+                    import matplotlib.pyplot as plt
+                    from ase.data import chemical_symbols
+                    
+                    
+                    # Convert atomic numbers to symbols
+                    element_symbols = [chemical_symbols[z] for z in head_args.z_table.zs]
+                    
+                    # Create the bar plot
+                    plt.figure(figsize=(32, 18))
+                    plt.bar(element_symbols, avg_num_neighbors_per_elem, color='b')
+                    
+                    # Add labels and title
+                    plt.xlabel('Element Symbol')
+                    plt.ylabel('Average Number of Neighbors')
+                    plt.title('Average Number of Neighbors per Element')
+                    
+                    # Display the plot
+                    plt.show()
+                    plt.savefig(f"avg_neighbor_per_elem.png")
+                elif plot_bar:
+                    import matplotlib.pyplot as plt
+                    from ase.data import chemical_symbols
+                    import pandas as pd
+                    import seaborn as sns
+
+                    def plot_species_neighbors_seaborn(raw, element_symbols):
+                        num_atoms, num_species = raw.shape
+                        neighbors_data = {symbol: [] for symbol in element_symbols}
+
+                        # Loop over each atom and collect neighbor data for the corresponding species
+                        for i in range(num_atoms):
+                            species_idx = np.argmax(raw[i, :])  # Find the species (position of 1 in one-hot vector)
+                            neighbors = raw[i, species_idx]  # The number of neighbors (value at the one-hot position)
+                            neighbors_data[element_symbols[species_idx]].append(neighbors)
+
+                        # Flatten the dictionary into a DataFrame for easier plotting with Seaborn
+                        data = []
+                        for species, neighbors in neighbors_data.items():
+                            for neighbor in neighbors:
+                                data.append([species, neighbor])
+                        
+                        df = pd.DataFrame(data, columns=['Species', 'Neighbors'])
+
+                        # Set up the plot
+                        plt.figure(figsize=(14, 8))
+                        sns.boxplot(x='Species', y='Neighbors', data=df)
+                        plt.xticks(rotation=90)
+                        plt.xlabel('Element Species')
+                        plt.ylabel('Number of Neighbors')
+                        plt.title('Distribution of Neighbors for Each Element Species')
+
+                        # Improve aesthetics
+                        #sns.despine(trim=True)
+                        
+                        # Save the plot
+                        plt.savefig('species_neighbors_seaborn_boxplot.png', bbox_inches='tight')
+                        plt.show()
+
+ 
+                    def plot_species_neighbors(raw, element_symbols):
+                        num_atoms, num_species = raw.shape
+                        neighbors_data = {symbol: [] for symbol in element_symbols}
+                    
+                        # Loop over each atom and collect neighbor data for the corresponding species
+                        for i in range(num_atoms):
+                            species_idx = np.argmax(raw[i, :])  # Find the species (position of 1 in one-hot vector)
+                            neighbors = raw[i, species_idx]  # The number of neighbors (value at the one-hot position)
+                            neighbors_data[element_symbols[species_idx]].append(neighbors)
+                    
+                        # Convert dictionary to DataFrame for easier statistical analysis
+                        df = pd.DataFrame.from_dict(neighbors_data, orient='index').transpose()
+                    
+                        # Plotting the boxplot
+                        plt.figure(figsize=(12, 6))
+                        df.boxplot(column=element_symbols)
+                        plt.xticks(rotation=90)  # Rotate x-axis labels for better readability
+                        plt.xlabel('Element Species')
+                        plt.ylabel('Number of Neighbors')
+                        plt.title('Distribution of Neighbors for Each Element Species')
+                    
+                        # Save the plot as a file
+                        plt.savefig(f'species_neighbors_boxplot_{args.r_max}_{args.r_max_scale}.png')
+                        plt.show()
+
+                    raw, num_elems = modules.raw_num_neighbors_per_elem(head_args.train_loader, rank=rank)
+                    element_symbols = [chemical_symbols[z] for z in head_args.z_table.zs]
+                    plot_species_neighbors(raw, element_symbols)
+                    
+
+
             else:
                 pass
-
-            import matplotlib.pyplot as plt
-            from ase.data import chemical_symbols
-            
-            
-            # Convert atomic numbers to symbols
-            element_symbols = [chemical_symbols[z] for z in head_args.z_table.zs]
-            
-            # Create the bar plot
-            plt.figure(figsize=(32, 18))
-            plt.bar(element_symbols, avg_num_neighbors_per_elem, color='b')
-            
-            # Add labels and title
-            plt.xlabel('Element Symbol')
-            plt.ylabel('Average Number of Neighbors')
-            plt.title('Average Number of Neighbors per Element')
-            
-            # Display the plot
-            plt.show()
-            plt.savefig(f"avg_neighbor_per_elem.png")
 
 
         # TODO: mean std avg_num_neighbor if given
@@ -588,6 +675,8 @@ def main() -> None:
 
         logging.info(f"Hidden irreps: {args.hidden_irreps}")
 
+        # element dependant radial
+
         model_config = dict(
             r_max=args.r_max if isinstance(args.r_max, float) else args.r_max_matrix, # TODO: different r_max for heads
             num_bessel=args.num_radial_basis,
@@ -611,7 +700,9 @@ def main() -> None:
             distance_transform=args.distance_transform,
             correlation=args.correlation,
             gate=modules.gate_dict[args.gate],
-            interaction_cls_first=modules.interaction_classes[args.interaction_first],
+            interaction_cls_first=modules.interaction_classes[
+                "RealAgnosticInteractionBlock"
+            ],
             MLP_irreps=o3.Irreps(args.MLP_irreps),
             atomic_inter_scale=[v.std for v in args.heads.values()],
             atomic_inter_shift=[0.0 for v in args.heads.values()],
@@ -895,141 +986,143 @@ def main() -> None:
     else:
         distributed_model = None
 
-    tools.train(
-        model=model,
-        loss_fn=loss_fn,
-        train_loader=train_loader,
-        valid_loaders=valid_loaders,
-        optimizer=optimizer,
-        lr_scheduler=lr_scheduler,
-        checkpoint_handler=checkpoint_handler,
-        eval_interval=args.eval_interval,
-        start_epoch=start_epoch,
-        max_num_epochs=args.max_num_epochs,
-        logger=logger,
-        patience=args.patience,
-        save_all_checkpoints=args.save_all_checkpoints,
-        output_args=output_args,
-        device=device,
-        swa=swa,
-        ema=ema,
-        max_grad_norm=args.clip_grad,
-        log_errors=args.error_table,
-        log_wandb=args.wandb,
-        distributed=args.distributed,
-        distributed_model=distributed_model,
-        train_sampler=train_sampler,
-        rank=rank,
-        restart=args.restart,
-        log_opt=args.log_opt,
-        async_update=args.async_update,
-    )
+    logging.info("----- SKIP TRAINING -----")
 
-    logging.info("Computing metrics for training, validation, and test sets")
+    #tools.train(
+    #    model=model,
+    #    loss_fn=loss_fn,
+    #    train_loader=train_loader,
+    #    valid_loaders=valid_loaders,
+    #    optimizer=optimizer,
+    #    lr_scheduler=lr_scheduler,
+    #    checkpoint_handler=checkpoint_handler,
+    #    eval_interval=args.eval_interval,
+    #    start_epoch=start_epoch,
+    #    max_num_epochs=args.max_num_epochs,
+    #    logger=logger,
+    #    patience=args.patience,
+    #    save_all_checkpoints=args.save_all_checkpoints,
+    #    output_args=output_args,
+    #    device=device,
+    #    swa=swa,
+    #    ema=ema,
+    #    max_grad_norm=args.clip_grad,
+    #    log_errors=args.error_table,
+    #    log_wandb=args.wandb,
+    #    distributed=args.distributed,
+    #    distributed_model=distributed_model,
+    #    train_sampler=train_sampler,
+    #    rank=rank,
+    #    restart=args.restart,
+    #    log_opt=args.log_opt,
+    #    async_update=args.async_update,
+    #)
 
-    all_data_loaders = {
-        "train": train_loader,
-    }
-    for head, valid_loader in valid_loaders.items():
-        all_data_loaders[head] = valid_loader
+    #logging.info("Computing metrics for training, validation, and test sets")
 
-    test_sets = {}
-    if (args.train_file is not None) and args.train_file.endswith(".xyz"): # TODO: train_file is now in config.yaml
-        for name, subset in collections.tests:
-            test_sets[name] = [
-                data.AtomicData.from_config(
-                    config, z_table=z_table, cutoff=args.r_max, heads=heads
-                )
-                for config in subset
-            ]
-    elif not args.multi_processed_test:
-        assert False, "should not run this [temp]"
-        test_files = get_files_with_suffix(args.test_dir, "_test.h5")
-        for test_file in test_files:
-            name = os.path.splitext(os.path.basename(test_file))[0]
-            test_sets[name] = data.HDF5Dataset(
-                test_file, r_max=args.r_max, z_table=z_table, heads=heads
-            )
-    else:
-        for head, head_args in args.heads.items():
-            if 'test_file' in head_args:
-                assert check_folder_subfolder(head_args.test_file), f"test_file of Head {head} is not a directory or does not contains subfolders: {head_args.test_file}"
-                test_folders = glob(os.path.join(head_args.test_file) + "/*")
-                for folder in test_folders:
-                    name = os.path.splitext(os.path.basename(folder))[0]
-                    test_sets[head + name] = data.dataset_from_sharded_hdf5(
-                        folder, r_max=args.r_max, z_table=z_table, heads=heads, head=head
-                    )
+    #all_data_loaders = {
+    #    "train": train_loader,
+    #}
+    #for head, valid_loader in valid_loaders.items():
+    #    all_data_loaders[head] = valid_loader
 
-    for test_name, test_set in test_sets.items():
-        test_sampler = None
-        if args.distributed:
-            test_sampler = torch.utils.data.distributed.DistributedSampler(
-                test_set,
-                num_replicas=world_size,
-                rank=rank,
-                shuffle=True,
-                drop_last=True,
-                seed=args.seed,
-            )
-        try:
-            drop_last = test_set.drop_last
-        except AttributeError as e:
-            drop_last = False
-        test_loader = torch_geometric.dataloader.DataLoader(
-            test_set,
-            batch_size=args.valid_batch_size,
-            shuffle=(test_sampler is None),
-            drop_last=drop_last,
-            num_workers=args.num_workers,
-            pin_memory=args.pin_memory,
-        )
-        all_data_loaders[test_name] = test_loader
+    #test_sets = {}
+    #if (args.train_file is not None) and args.train_file.endswith(".xyz"): # TODO: train_file is now in config.yaml
+    #    for name, subset in collections.tests:
+    #        test_sets[name] = [
+    #            data.AtomicData.from_config(
+    #                config, z_table=z_table, cutoff=args.r_max, heads=heads
+    #            )
+    #            for config in subset
+    #        ]
+    #elif not args.multi_processed_test:
+    #    assert False, "should not run this [temp]"
+    #    test_files = get_files_with_suffix(args.test_dir, "_test.h5")
+    #    for test_file in test_files:
+    #        name = os.path.splitext(os.path.basename(test_file))[0]
+    #        test_sets[name] = data.HDF5Dataset(
+    #            test_file, r_max=args.r_max, z_table=z_table, heads=heads
+    #        )
+    #else:
+    #    for head, head_args in args.heads.items():
+    #        if 'test_file' in head_args:
+    #            assert check_folder_subfolder(head_args.test_file), f"test_file of Head {head} is not a directory or does not contains subfolders: {head_args.test_file}"
+    #            test_folders = glob(os.path.join(head_args.test_file) + "/*")
+    #            for folder in test_folders:
+    #                name = os.path.splitext(os.path.basename(folder))[0]
+    #                test_sets[head + name] = data.dataset_from_sharded_hdf5(
+    #                    folder, r_max=args.r_max, z_table=z_table, heads=heads, head=head
+    #                )
 
-    for swa_eval in swas:
-        epoch = checkpoint_handler.load_latest(
-            state=tools.CheckpointState(model, optimizer, lr_scheduler),
-            swa=swa_eval,
-            device=device,
-        )
-        model.to(device)
-        if args.distributed:
-            distributed_model = DDP(model, device_ids=[local_rank])
-        model_to_evaluate = model if not args.distributed else distributed_model
-        logging.info(f"Loaded model from epoch {epoch}")
+    #for test_name, test_set in test_sets.items():
+    #    test_sampler = None
+    #    if args.distributed:
+    #        test_sampler = torch.utils.data.distributed.DistributedSampler(
+    #            test_set,
+    #            num_replicas=world_size,
+    #            rank=rank,
+    #            shuffle=True,
+    #            drop_last=True,
+    #            seed=args.seed,
+    #        )
+    #    try:
+    #        drop_last = test_set.drop_last
+    #    except AttributeError as e:
+    #        drop_last = False
+    #    test_loader = torch_geometric.dataloader.DataLoader(
+    #        test_set,
+    #        batch_size=args.valid_batch_size,
+    #        shuffle=(test_sampler is None),
+    #        drop_last=drop_last,
+    #        num_workers=args.num_workers,
+    #        pin_memory=args.pin_memory,
+    #    )
+    #    all_data_loaders[test_name] = test_loader
 
-        for param in model.parameters():
-            param.requires_grad = False
-        table = create_error_table(
-            table_type=args.error_table,
-            all_data_loaders=all_data_loaders,
-            model=model_to_evaluate,
-            loss_fn=loss_fn,
-            output_args=output_args,
-            log_wandb=args.wandb,
-            device=device,
-            distributed=args.distributed,
-        )
-        logging.info("\n" + str(table))
+    #for swa_eval in swas:
+    #    epoch = checkpoint_handler.load_latest(
+    #        state=tools.CheckpointState(model, optimizer, lr_scheduler),
+    #        swa=swa_eval,
+    #        device=device,
+    #    )
+    #    model.to(device)
+    #    if args.distributed:
+    #        distributed_model = DDP(model, device_ids=[local_rank])
+    #    model_to_evaluate = model if not args.distributed else distributed_model
+    #    logging.info(f"Loaded model from epoch {epoch}")
 
-        if rank == 0:
-            # Save entire model
-            if swa_eval:
-                model_path = Path(args.checkpoints_dir) / (tag + "_swa.model")
-            else:
-                model_path = Path(args.checkpoints_dir) / (tag + ".model")
-            logging.info(f"Saving model to {model_path}")
-            if args.save_cpu:
-                model = model.to("cpu")
-            torch.save(model, model_path)
+    #    for param in model.parameters():
+    #        param.requires_grad = False
+    #    table = create_error_table(
+    #        table_type=args.error_table,
+    #        all_data_loaders=all_data_loaders,
+    #        model=model_to_evaluate,
+    #        loss_fn=loss_fn,
+    #        output_args=output_args,
+    #        log_wandb=args.wandb,
+    #        device=device,
+    #        distributed=args.distributed,
+    #    )
+    #    logging.info("\n" + str(table))
 
-            if swa_eval:
-                torch.save(model, Path(args.model_dir) / (args.name + "_swa.model"))
-            else:
-                torch.save(model, Path(args.model_dir) / (args.name + ".model"))
+    #    if rank == 0:
+    #        # Save entire model
+    #        if swa_eval:
+    #            model_path = Path(args.checkpoints_dir) / (tag + "_swa.model")
+    #        else:
+    #            model_path = Path(args.checkpoints_dir) / (tag + ".model")
+    #        logging.info(f"Saving model to {model_path}")
+    #        if args.save_cpu:
+    #            model = model.to("cpu")
+    #        torch.save(model, model_path)
 
-        if args.distributed:
-            torch.distributed.barrier()
+    #        if swa_eval:
+    #            torch.save(model, Path(args.model_dir) / (args.name + "_swa.model"))
+    #        else:
+    #            torch.save(model, Path(args.model_dir) / (args.name + ".model"))
+
+    #    if args.distributed:
+    #        torch.distributed.barrier()
 
     logging.info("Done")
     if args.distributed:

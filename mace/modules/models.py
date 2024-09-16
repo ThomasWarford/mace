@@ -396,7 +396,7 @@ class ScaleShiftMACE(MACE):
         # Interactions
         node_es_list = [pair_node_energy]
         node_feats_list = []
-        # import ipdb; ipdb.set_trace()
+
         for interaction, product, readout in zip(
             self.interactions, self.products, self.readouts
         ):

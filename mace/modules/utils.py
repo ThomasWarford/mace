@@ -24,6 +24,9 @@ tqdm = partial(tqdm, ncols=55)
 import torch.distributed as dist
 import torch_geometric
 
+from collections import defaultdict
+from torch_geometric.utils import remove_isolated_nodes, contains_isolated_nodes
+
 def compute_forces(
     energy: torch.Tensor, positions: torch.Tensor, training: bool = True
 ) -> torch.Tensor:
@@ -347,6 +350,56 @@ def compute_avg_num_neighbors(data_loader: torch.utils.data.DataLoader, rank=0) 
     )
     return to_numpy(avg_num_neighbors).item()
 
+def compute_avg_num_neighbors_per_elem(data_loader: torch.utils.data.DataLoader, rank=0) -> float:
+    num_neighbors = []
+    node_attrs = []
+
+    if rank == 0:
+        data_iter = tqdm(data_loader)
+    else:
+        data_iter = data_loader
+
+    isolated_flag = False
+    
+    for batch in data_iter:
+        iso_removed_edge_index, _, mask = remove_isolated_nodes(batch.edge_index, num_nodes=batch.node_attrs.size(0))
+
+        _, receivers = iso_removed_edge_index
+        _, counts = torch.unique(receivers, return_counts=True)
+        element_onehot_counts = counts.unsqueeze(-1) * batch.node_attrs[mask]
+        num_neighbors.append(element_onehot_counts)
+        node_attrs.append(batch.node_attrs)
+
+    sum_num_neighbors_per_elem = torch.sum(
+        torch.cat(num_neighbors, dim=0).type(torch.get_default_dtype()), dim=0, keepdim=False
+    )
+    num_elem = torch.sum(torch.cat(node_attrs, dim=0).type(torch.get_default_dtype()), dim=0)
+    avg_num_neighbors_per_elem = sum_num_neighbors_per_elem / num_elem
+    return to_numpy(avg_num_neighbors_per_elem) #to_numpy(torch.cat(num_neighbors, dim=0).type(torch.get_default_dtype()))
+
+def raw_num_neighbors_per_elem(data_loader: torch.utils.data.DataLoader, rank=0) -> float:
+    num_neighbors = []
+    node_attrs = []
+
+    if rank == 0:
+        data_iter = tqdm(data_loader)
+    else:
+        data_iter = data_loader
+
+    isolated_flag = False
+    
+    for batch in data_iter:
+        iso_removed_edge_index, _, mask = remove_isolated_nodes(batch.edge_index, num_nodes=batch.node_attrs.size(0))
+
+        _, receivers = iso_removed_edge_index
+        _, counts = torch.unique(receivers, return_counts=True)
+        element_onehot_counts = counts.unsqueeze(-1) * batch.node_attrs[mask]
+        num_neighbors.append(element_onehot_counts)
+        node_attrs.append(batch.node_attrs)
+
+    raw = torch.cat(num_neighbors, dim=0).type(torch.get_default_dtype())
+    num_elem = torch.sum(torch.cat(node_attrs, dim=0).type(torch.get_default_dtype()), dim=0)
+    return to_numpy(raw), to_numpy(num_elem)
 
 def compute_statistics(
     data_loader: torch.utils.data.DataLoader,

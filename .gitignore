@@ -36,3 +36,8 @@ dist/
 *.model
 /results
 /logs
+
+# plots
+*.png
+*.gif
+

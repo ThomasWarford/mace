@@ -252,7 +252,7 @@ def load_from_xyz(
     forces_from_calc = False
     stress_from_calc = False
 
-    # Perform initial checks and log warnings
+    ## Perform initial checks and log warnings
     if energy_key == "energy":
         logging.info(
             "Using energy_key 'energy' is unsafe, consider using a different key, rewriting energies to '_REF_energy'"

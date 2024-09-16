@@ -19,6 +19,11 @@ from .blocks import (
     RealAgnosticResidualInteractionBlock,
     RealAgnosticInteractionGateBlock,
     RealAgnosticResidualInteractionGateBlock,
+    RealAgnosticDensityNormalizedInteractionGateBlock,
+    RealAgnosticDensityInjuctedInteractionGateBlock,
+    RealAgnosticDensityInjuctedNoScaleInteractionGateBlock,
+    RealAgnosticDensityInjuctedNodeAttrAttendInteractionGateBlock,
+    #RealAgnosticDensityNormalizedResidualInteractionGateBlock,
     ResidualElementDependentInteractionBlock,
     ScaleShiftBlock,
 )
@@ -44,6 +49,8 @@ from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
 from .utils import (
     compute_avg_num_neighbors,
+    compute_avg_num_neighbors_per_elem,
+    raw_num_neighbors_per_elem,
     compute_fixed_charge_dipole,
     compute_mean_rms_energy_forces,
     compute_mean_std_atomic_inter_energy,
@@ -60,6 +67,10 @@ interaction_classes: Dict[str, Type[InteractionBlock]] = {
     "RealAgnosticAttResidualInteractionBlock": RealAgnosticAttResidualInteractionBlock,
     #"RealAgnosticInteractionBlock": RealAgnosticInteractionBlock,
     "RealAgnosticInteractionBlock": RealAgnosticInteractionGateBlock,
+    "RealAgnosticDensityNormalizedInteractionBlock": RealAgnosticDensityNormalizedInteractionGateBlock,
+    "RealAgnosticDensityInjuctedInteractionBlock": RealAgnosticDensityInjuctedInteractionGateBlock,
+    "RealAgnosticDensityInjuctedNoScaleInteractionBlock": RealAgnosticDensityInjuctedNoScaleInteractionGateBlock,
+    "RealAgnosticDensityInjuctedNodeAttrAttendInteractionBlock": RealAgnosticDensityInjuctedNodeAttrAttendInteractionGateBlock,
 }
 
 scaling_classes: Dict[str, Callable] = {
