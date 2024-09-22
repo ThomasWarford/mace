@@ -14,20 +14,20 @@
 #SBATCH --time=20:00:00              # maximum execution time requested (HH:MM:SS)
 #SBATCH --output=mace-train-%A_%a.out # name of output file
 #SBATCH --error=mace-train-%A_%a.out  # name of error file (here, in common with the output file)
-#SBATCH --array=0-3%1                  # Array index range
+#SBATCH --array=0-8%1                  # Array index range
 
 # Access arguments
 bs=32
 lr=0.005
 gpu=16
-conf=jz_mp_config_r6.0.yaml
+conf=jz_spice_mp_config_r6.0.yaml
 r=6.0
 num_channel=128 # [[64], -128-, [256]]
 mlp_irreps="16x0e" # [["8x0e"], -"16x0e"-, ["32x0e"], ["64x0e"]]
 num_radial=10 # [6, [8], -10-, [12]]
 seed=123
 stress=10
-interaction_first="RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionBlock"
+interaction_first="RealAgnosticDensityInjuctedNodeAttrAttendInteractionBlock"
 agnostic_first=False
 
 # Cleans out modules loaded in interactive and inherited by default

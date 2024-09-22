@@ -64,6 +64,8 @@ def main() -> None:
     args = tools.build_default_arg_parser().parse_args()
     tag = tools.get_tag(name=args.name, seed=args.seed)
 
+    log_tag = tag + "_save_model_and_plot"
+
     if args.device == "xpu":
         try:
             import intel_extension_for_pytorch as ipex
@@ -92,7 +94,7 @@ def main() -> None:
 
     # Setup
     tools.set_seeds(args.seed)
-    tools.setup_logger(level=args.log_level, tag=tag, directory=args.log_dir, rank=rank)
+    tools.setup_logger(level=args.log_level, tag=log_tag, directory=args.log_dir, rank=rank)
 
     if args.distributed:
         torch.cuda.set_device(local_rank)
@@ -351,7 +353,7 @@ def main() -> None:
         if 'avg_num_neighbors' in head_args and head_args.avg_num_neighbors > 0:
             head_args.compute_avg_num_neighbors = False
 
-        if head_args.get("plot_neighbor_distribution", True):
+        if head_args.get("plot_neighbor_distribution", False):
             if args.distributed:
                 plot_avg = False
                 plot_bar = True
@@ -700,9 +702,7 @@ def main() -> None:
             distance_transform=args.distance_transform,
             correlation=args.correlation,
             gate=modules.gate_dict[args.gate],
-            interaction_cls_first=modules.interaction_classes[
-                "RealAgnosticInteractionBlock"
-            ],
+            interaction_cls_first=modules.interaction_classes[args.interaction_first],
             MLP_irreps=o3.Irreps(args.MLP_irreps),
             atomic_inter_scale=[v.std for v in args.heads.values()],
             atomic_inter_shift=[0.0 for v in args.heads.values()],
@@ -861,7 +861,7 @@ def main() -> None:
     if args.device == "xpu":
         logging.info("Optimzing model and optimzier for XPU")
         model, optimizer = ipex.optimize(model, optimizer=optimizer)
-    logger = tools.MetricsLogger(directory=args.results_dir, tag=tag + "_train")
+    logger = tools.MetricsLogger(directory=args.results_dir, tag=log_tag + "_train")
 
     lr_scheduler = LRScheduler(optimizer, args)
 
@@ -940,6 +940,7 @@ def main() -> None:
                 device=device,
             )
         except Exception:  # pylint: disable=W0703
+            print(model)
             opt_start_epoch = checkpoint_handler.load_latest(
                 state=tools.CheckpointState(model, optimizer, lr_scheduler),
                 swa=False,
@@ -1079,50 +1080,50 @@ def main() -> None:
     #    )
     #    all_data_loaders[test_name] = test_loader
 
-    #for swa_eval in swas:
-    #    epoch = checkpoint_handler.load_latest(
-    #        state=tools.CheckpointState(model, optimizer, lr_scheduler),
-    #        swa=swa_eval,
-    #        device=device,
-    #    )
-    #    model.to(device)
-    #    if args.distributed:
-    #        distributed_model = DDP(model, device_ids=[local_rank])
-    #    model_to_evaluate = model if not args.distributed else distributed_model
-    #    logging.info(f"Loaded model from epoch {epoch}")
+    for swa_eval in swas:
+        epoch = checkpoint_handler.load_latest(
+            state=tools.CheckpointState(model, optimizer, lr_scheduler),
+            swa=swa_eval,
+            device=device,
+        )
+        model.to(device)
+        if args.distributed:
+            distributed_model = DDP(model, device_ids=[local_rank])
+        model_to_evaluate = model if not args.distributed else distributed_model
+        logging.info(f"Loaded model from epoch {epoch}")
 
-    #    for param in model.parameters():
-    #        param.requires_grad = False
-    #    table = create_error_table(
-    #        table_type=args.error_table,
-    #        all_data_loaders=all_data_loaders,
-    #        model=model_to_evaluate,
-    #        loss_fn=loss_fn,
-    #        output_args=output_args,
-    #        log_wandb=args.wandb,
-    #        device=device,
-    #        distributed=args.distributed,
-    #    )
-    #    logging.info("\n" + str(table))
+        #for param in model.parameters():
+        #    param.requires_grad = False
+        #table = create_error_table(
+        #    table_type=args.error_table,
+        #    all_data_loaders=all_data_loaders,
+        #    model=model_to_evaluate,
+        #    loss_fn=loss_fn,
+        #    output_args=output_args,
+        #    log_wandb=args.wandb,
+        #    device=device,
+        #    distributed=args.distributed,
+        #)
+        #logging.info("\n" + str(table))
 
-    #    if rank == 0:
-    #        # Save entire model
-    #        if swa_eval:
-    #            model_path = Path(args.checkpoints_dir) / (tag + "_swa.model")
-    #        else:
-    #            model_path = Path(args.checkpoints_dir) / (tag + ".model")
-    #        logging.info(f"Saving model to {model_path}")
-    #        if args.save_cpu:
-    #            model = model.to("cpu")
-    #        torch.save(model, model_path)
+        if rank == 0:
+            # Save entire model
+            if swa_eval:
+                model_path = Path(args.checkpoints_dir) / (tag + "_swa.model")
+            else:
+                model_path = Path(args.checkpoints_dir) / (tag + ".model")
+            logging.info(f"Saving model to {model_path}")
+            if args.save_cpu:
+                model = model.to("cpu")
+            torch.save(model, model_path)
 
-    #        if swa_eval:
-    #            torch.save(model, Path(args.model_dir) / (args.name + "_swa.model"))
-    #        else:
-    #            torch.save(model, Path(args.model_dir) / (args.name + ".model"))
+            if swa_eval:
+                torch.save(model, Path(args.model_dir) / (args.name + "_swa.model"))
+            else:
+                torch.save(model, Path(args.model_dir) / (args.name + ".model"))
 
-    #    if args.distributed:
-    #        torch.distributed.barrier()
+    if args.distributed:
+        torch.distributed.barrier()
 
     logging.info("Done")
     if args.distributed:

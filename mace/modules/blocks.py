@@ -571,6 +571,115 @@ class AgnosticResidualNonlinearInteractionBlock(InteractionBlock):
 
 
 @compile_mode("script")
+class RealAgnosticDensityNormalizedNoScaleInteractionGateBlock(InteractionBlock):
+
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        if not getattr(self, "agnostic", False):
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.irreps_out, self.node_attrs_irreps, self.irreps_out
+            )
+        else:
+            ## Selector TensorProduct
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass
+        
+        # take l=0 part of the node feature
+        node_feats_l0_size = self.node_feats_irreps[0].mul
+        self.node_l0_linear = torch.nn.Linear(node_feats_l0_size, input_dim) # node_feats and edge_attr as input
+
+        self.reshape = reshape_irreps(self.irreps_out)
+        self.density_fn = nn.FullyConnectedNet(
+            [input_dim] + [1,], 
+            self.gate
+        )
+        self.density_linear = torch.nn.Linear(32, self.irreps_out[0].mul) # TODO: density embedding model
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]        
+        # learnable density funciton with 
+        density = torch.tanh(self.density_fn(edge_feats)**2)
+        
+        # NO RESCALE
+        #mji = mji * density
+
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        
+        node_local_density = scatter_sum(
+            src=density, index=receiver, dim=0, dim_size=num_nodes
+        )
+
+        message = message / (node_local_density + 1)
+ 
+        message = self.linear(message)
+
+        if not getattr(self, "agnostic", False):
+            message = self.skip_tp(message, node_attrs)
+        else:
+            # message = self.skip_tp(message, node_feats)
+            pass
+        return (
+            self.reshape(message),
+            None,
+        )  # [n_nodes, channels, (lmax + 1)**2]
+
+
+@compile_mode("script")
 class RealAgnosticDensityInjuctedNodeAttrAttendInteractionGateBlock(InteractionBlock):
 
     def _setup(self) -> None:
@@ -651,8 +760,8 @@ class RealAgnosticDensityInjuctedNodeAttrAttendInteractionGateBlock(InteractionB
         tp_weights = self.conv_tp_weights(edge_feats)
         mji = self.conv_tp(
             node_feats[sender], edge_attrs, tp_weights
-        )  # [n_edges, irreps]        
-        # learnable density funciton with 
+        )  # [n_edges, irreps]
+        
         node_feats_l0 = node_feats[:, self.node_feats_irreps.slices()[0]]
         node_feats_l0 = self.node_l0_linear(node_feats_l0)
         density = torch.tanh(self.density_fn(edge_feats * node_feats_l0[sender])**2)
@@ -688,6 +797,118 @@ class RealAgnosticDensityInjuctedNodeAttrAttendInteractionGateBlock(InteractionB
             None,
         )  # [n_nodes, channels, (lmax + 1)**2]
 
+
+@compile_mode("script")
+class RealAgnosticDensityInjuctedNoScaleNoBiasInteractionGateBlock(InteractionBlock):
+
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        if not getattr(self, "agnostic", False):
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.irreps_out, self.node_attrs_irreps, self.irreps_out
+            )
+        else:
+            ## Selector TensorProduct
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass
+
+        self.reshape = reshape_irreps(self.irreps_out)
+        self.density_fn = nn.FullyConnectedNet(
+            [input_dim] + [1,], 
+            self.gate
+        )
+        
+        self.sinous_embedding = partial(continuous_sinous_embedding, dim=32, max_density=100)
+        self.density_linear = torch.nn.Linear(32, self.irreps_out[0].mul, bias=False) # TODO: density embedding model
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]        
+        # learnable density funciton with 
+        density = torch.tanh(self.density_fn(edge_feats)**2)
+        
+        # NO RESCALE
+        #mji = mji * density
+
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        
+        node_local_density = scatter_sum(
+            src=density, index=receiver, dim=0, dim_size=num_nodes
+        )
+
+        message = message / (node_local_density + 1)
+ 
+        # density_embedding
+        sin_embedding = self.sinous_embedding(node_local_density.flatten())
+        density_embedding = self.density_linear(sin_embedding)
+        # density inject
+        message[:, self.irreps_out.slices()[0]] += density_embedding
+
+        message = self.linear(message)
+
+        if not getattr(self, "agnostic", False):
+            message = self.skip_tp(message, node_attrs)
+        else:
+            # message = self.skip_tp(message, node_feats)
+            pass
+        return (
+            self.reshape(message),
+            None,
+        )  # [n_nodes, channels, (lmax + 1)**2]
 
 
 @compile_mode("script")
@@ -913,6 +1134,116 @@ class RealAgnosticDensityInjuctedInteractionGateBlock(InteractionBlock):
             None,
         )  # [n_nodes, channels, (lmax + 1)**2]
     
+
+
+@compile_mode("script")
+class RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionGateBlock(InteractionBlock):
+
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        if not getattr(self, "agnostic", False):
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.irreps_out, self.node_attrs_irreps, self.irreps_out
+            )
+        else:
+            ## Selector TensorProduct
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass
+        self.reshape = reshape_irreps(self.irreps_out)
+        self.density_fn = nn.FullyConnectedNet(
+            [input_dim] + [1,], 
+            self.gate
+        )
+        
+        self.sinous_embedding = partial(continuous_sinous_embedding, dim=32, max_density=100)
+        self.density_linear = torch.nn.Linear(32, self.irreps_out[0].mul) # TODO: density embedding model
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]        
+        # learnable density funciton with 
+        density = torch.tanh(self.density_fn(edge_feats)**2)
+
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        
+        # density normalization
+        node_local_density = scatter_sum(
+            src=density, index=receiver, dim=0, dim_size=num_nodes
+        )
+        
+        # message = message / (node_local_density + 1)
+        # density_embedding
+        sin_embedding = self.sinous_embedding(node_local_density.flatten())
+        density_embedding = self.density_linear(sin_embedding)
+        # density inject
+        message[:, self.irreps_out.slices()[0]] += density_embedding
+
+        message = self.linear(message)
+
+        if not getattr(self, "agnostic", False):
+            message = self.skip_tp(message, node_attrs)
+        else:
+            # message = self.skip_tp(message, node_feats)
+            pass
+        return (
+            self.reshape(message),
+            None,
+        )  # [n_nodes, channels, (lmax + 1)**2]
+
 
 @compile_mode("script")
 class RealAgnosticDensityNormalizedInteractionGateBlock(InteractionBlock):
@@ -1180,6 +1511,336 @@ class RealAgnosticInteractionBlock(InteractionBlock):
             None,
         )  # [n_nodes, channels, (lmax + 1)**2]
 
+
+@compile_mode("script")
+class RealAgnosticDensityInjuctedNoScaleNoBiasResidualInteractionGateBlock(InteractionBlock):
+
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        if not getattr(self, "agnostic", False):
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.node_feats_irreps, self.node_attrs_irreps, self.hidden_irreps
+            )
+        else:
+            ## Selector TensorProduct
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass
+
+        self.reshape = reshape_irreps(self.irreps_out)
+        self.density_fn = nn.FullyConnectedNet(
+            [input_dim] + [1,], 
+            self.gate
+        )
+        
+        self.sinous_embedding = partial(continuous_sinous_embedding, dim=32, max_density=100)
+        self.density_linear = torch.nn.Linear(32, self.irreps_out[0].mul, bias=False) # TODO: density embedding model
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        sc = self.skip_tp(node_feats, node_attrs)
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]        
+        # learnable density funciton with 
+        density = torch.tanh(self.density_fn(edge_feats)**2)
+        
+        # NO RESCALE
+        #mji = mji * density
+
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        
+        node_local_density = scatter_sum(
+            src=density, index=receiver, dim=0, dim_size=num_nodes
+        )
+
+        message = message / (node_local_density + 1)
+ 
+        # density_embedding
+        sin_embedding = self.sinous_embedding(node_local_density.flatten())
+        density_embedding = self.density_linear(sin_embedding)
+        # density inject
+        message[:, self.irreps_out.slices()[0]] += density_embedding
+
+        message = self.linear(message)
+
+        return (
+            self.reshape(message),
+            sc,
+        )  # [n_nodes, channels, (lmax + 1)**2]
+
+@compile_mode("script")
+class RealAgnosticDensityInjuctedNoScaleResidualInteractionGateBlock(InteractionBlock):
+
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        if not getattr(self, "agnostic", False):
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.node_feats_irreps, self.node_attrs_irreps, self.hidden_irreps
+            )
+        else:
+            ## Selector TensorProduct
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass
+
+        self.reshape = reshape_irreps(self.irreps_out)
+        self.density_fn = nn.FullyConnectedNet(
+            [input_dim] + [1,], 
+            self.gate
+        )
+        
+        self.sinous_embedding = partial(continuous_sinous_embedding, dim=32, max_density=100)
+        self.density_linear = torch.nn.Linear(32, self.irreps_out[0].mul) # TODO: density embedding model
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        sc = self.skip_tp(node_feats, node_attrs)
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]        
+        # learnable density funciton with 
+        density = torch.tanh(self.density_fn(edge_feats)**2)
+        
+        # NO RESCALE
+        #mji = mji * density
+
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        
+        node_local_density = scatter_sum(
+            src=density, index=receiver, dim=0, dim_size=num_nodes
+        )
+
+        message = message / (node_local_density + 1)
+ 
+        # density_embedding
+        sin_embedding = self.sinous_embedding(node_local_density.flatten())
+        density_embedding = self.density_linear(sin_embedding)
+        # density inject
+        message[:, self.irreps_out.slices()[0]] += density_embedding
+
+        message = self.linear(message)
+
+        return (
+            self.reshape(message),
+            sc,
+        )  # [n_nodes, channels, (lmax + 1)**2]
+
+@compile_mode("script")
+class RealAgnosticDensityInjuctedNodeAttrAttendResidualInteractionGateBlock(InteractionBlock):
+
+    def _setup(self) -> None:
+        # First linear
+        self.linear_up = o3.Linear(
+            self.node_feats_irreps,
+            self.node_feats_irreps,
+            internal_weights=True,
+            shared_weights=True,
+        )
+        # TensorProduct
+        irreps_mid, instructions = tp_out_irreps_with_instructions(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            self.target_irreps,
+        )
+        self.conv_tp = o3.TensorProduct(
+            self.node_feats_irreps,
+            self.edge_attrs_irreps,
+            irreps_mid,
+            instructions=instructions,
+            shared_weights=False,
+            internal_weights=False,
+        )
+
+        # Convolution weights
+        input_dim = self.edge_feats_irreps.num_irreps
+        print(f"RealAgnosticInteractionGateBlock --> {self.gate}")
+        self.conv_tp_weights = nn.FullyConnectedNet(
+            [input_dim] + self.radial_MLP + [self.conv_tp.weight_numel],
+            self.gate,
+        )
+
+        # Linear
+        irreps_mid = irreps_mid.simplify()
+        self.irreps_out = self.target_irreps
+        self.linear = o3.Linear(
+            irreps_mid, self.irreps_out, internal_weights=True, shared_weights=True
+        )
+
+        if not getattr(self, "agnostic", False):
+            # Selector TensorProduct
+            self.skip_tp = o3.FullyConnectedTensorProduct(
+                self.node_feats_irreps, self.node_attrs_irreps, self.hidden_irreps
+            )
+        else:
+            ## Selector TensorProduct
+            #self.skip_tp = o3.FullyConnectedTensorProduct(
+            #    self.irreps_out, self.node_feats_irreps, self.irreps_out
+            #)
+            pass
+        
+        # take l=0 part of the node feature
+        node_feats_l0_size = self.node_feats_irreps[0].mul
+        self.node_l0_linear = torch.nn.Linear(node_feats_l0_size, input_dim) # node_feats and edge_attr as input
+
+        self.reshape = reshape_irreps(self.irreps_out)
+        self.density_fn = nn.FullyConnectedNet(
+            [input_dim] + [1,], 
+            self.gate
+        )
+        
+        self.sinous_embedding = partial(continuous_sinous_embedding, dim=32, max_density=100)
+        self.density_linear = torch.nn.Linear(32, self.irreps_out[0].mul) # TODO: density embedding model
+
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> Tuple[torch.Tensor, None]:
+        sender = edge_index[0]
+        receiver = edge_index[1]
+        num_nodes = node_feats.shape[0]
+        sc = self.skip_tp(node_feats, node_attrs)
+        node_feats = self.linear_up(node_feats)
+        tp_weights = self.conv_tp_weights(edge_feats)
+        mji = self.conv_tp(
+            node_feats[sender], edge_attrs, tp_weights
+        )  # [n_edges, irreps]        
+        # learnable density funciton with 
+        node_feats_l0 = node_feats[:, self.node_feats_irreps.slices()[0]]
+        node_feats_l0 = self.node_l0_linear(node_feats_l0)
+        density = torch.tanh(self.density_fn(edge_feats * node_feats_l0[sender])**2)
+        
+        # NO RESCALE
+        #mji = mji * density
+
+        message = scatter_sum(
+            src=mji, index=receiver, dim=0, dim_size=num_nodes
+        )  # [n_nodes, irreps]
+        
+        node_local_density = scatter_sum(
+            src=density, index=receiver, dim=0, dim_size=num_nodes
+        )
+
+        message = message / (node_local_density + 1)
+ 
+        # density_embedding
+        sin_embedding = self.sinous_embedding(node_local_density.flatten())
+        density_embedding = self.density_linear(sin_embedding)
+        # density inject
+        message[:, self.irreps_out.slices()[0]] += density_embedding
+
+        message = self.linear(message)
+
+        return (
+            self.reshape(message),
+            sc,
+        )  # [n_nodes, channels, (lmax + 1)**2]
 
 @compile_mode("script")
 class RealAgnosticResidualInteractionGateBlock(InteractionBlock):

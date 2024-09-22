@@ -14,7 +14,7 @@
 #SBATCH --time=20:00:00              # maximum execution time requested (HH:MM:SS)
 #SBATCH --output=mace-train-%A_%a.out # name of output file
 #SBATCH --error=mace-train-%A_%a.out  # name of error file (here, in common with the output file)
-#SBATCH --array=0-3%1                  # Array index range
+#SBATCH --array=0-1%1                  # Array index range
 
 # Access arguments
 bs=32
@@ -27,7 +27,8 @@ mlp_irreps="16x0e" # [["8x0e"], -"16x0e"-, ["32x0e"], ["64x0e"]]
 num_radial=10 # [6, [8], -10-, [12]]
 seed=123
 stress=10
-interaction_first="RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionBlock"
+interaction_first="RealAgnosticDensityInjuctedNodeAttrAttendInteractionBlock"
+interaction="RealAgnosticDensityInjuctedNodeAttrAttendResidualInteractionBlock"
 agnostic_first=False
 
 # Cleans out modules loaded in interactive and inherited by default
@@ -44,7 +45,7 @@ export PATH="$PATH:/linkhome/rech/genrre01/unh55hx/.local/bin"
 DATA_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/data/multihead_dataset
 
 # Running code
-srun bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress} ${interaction_first} ${agnostic_first}
+srun bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress} ${interaction_first} ${interaction} ${agnostic_first}
 
 #mace_run_train \
 #    --name="Test_Multihead_MultiGPU_SpiceMP_MACE" \

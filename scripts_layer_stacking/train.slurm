@@ -27,8 +27,10 @@ mlp_irreps="16x0e" # [["8x0e"], -"16x0e"-, ["32x0e"], ["64x0e"]]
 num_radial=10 # [6, [8], -10-, [12]]
 seed=123
 stress=10
-interaction_first="RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionBlock"
+interaction_first="RealAgnosticDensityInjuctedNoScaleInteractionBlock"
+interaction="RealAgnosticDensityInjuctedNoScaleResidualInteractionBlock"
 agnostic_first=False
+num_interactions=2
 
 # Cleans out modules loaded in interactive and inherited by default
 module purge
@@ -44,7 +46,7 @@ export PATH="$PATH:/linkhome/rech/genrre01/unh55hx/.local/bin"
 DATA_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/data/multihead_dataset
 
 # Running code
-srun bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress} ${interaction_first} ${agnostic_first}
+srun bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress} ${interaction_first} ${interaction} ${num_interactions} ${agnostic_first}
 
 #mace_run_train \
 #    --name="Test_Multihead_MultiGPU_SpiceMP_MACE" \

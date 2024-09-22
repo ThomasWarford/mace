@@ -20,9 +20,17 @@ from .blocks import (
     RealAgnosticInteractionGateBlock,
     RealAgnosticResidualInteractionGateBlock,
     RealAgnosticDensityNormalizedInteractionGateBlock,
+    RealAgnosticDensityNormalizedNoScaleInteractionGateBlock,
     RealAgnosticDensityInjuctedInteractionGateBlock,
     RealAgnosticDensityInjuctedNoScaleInteractionGateBlock,
+    RealAgnosticDensityInjuctedNoScaleNoBiasInteractionGateBlock,
     RealAgnosticDensityInjuctedNodeAttrAttendInteractionGateBlock,
+    RealAgnosticDensityInjuctedNodeAttrAttendResidualInteractionGateBlock,
+    RealAgnosticDensityInjuctedNoScaleNoBiasResidualInteractionGateBlock,
+    RealAgnosticDensityInjuctedNoScaleResidualInteractionGateBlock,
+    RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionGateBlock,
+
+        
     #RealAgnosticDensityNormalizedResidualInteractionGateBlock,
     ResidualElementDependentInteractionBlock,
     ScaleShiftBlock,
@@ -70,7 +78,13 @@ interaction_classes: Dict[str, Type[InteractionBlock]] = {
     "RealAgnosticDensityNormalizedInteractionBlock": RealAgnosticDensityNormalizedInteractionGateBlock,
     "RealAgnosticDensityInjuctedInteractionBlock": RealAgnosticDensityInjuctedInteractionGateBlock,
     "RealAgnosticDensityInjuctedNoScaleInteractionBlock": RealAgnosticDensityInjuctedNoScaleInteractionGateBlock,
+    "RealAgnosticDensityInjuctedNoScaleNoBiasInteractionBlock": RealAgnosticDensityInjuctedNoScaleNoBiasInteractionGateBlock,
     "RealAgnosticDensityInjuctedNodeAttrAttendInteractionBlock": RealAgnosticDensityInjuctedNodeAttrAttendInteractionGateBlock,
+    "RealAgnosticDensityInjuctedNodeAttrAttendResidualInteractionBlock": RealAgnosticDensityInjuctedNodeAttrAttendResidualInteractionGateBlock,
+    "RealAgnosticDensityNormalizedNoScaleInteractionBlock": RealAgnosticDensityNormalizedNoScaleInteractionGateBlock,
+    "RealAgnosticDensityInjuctedNoScaleNoBiasResidualInteractionBlock": RealAgnosticDensityInjuctedNoScaleNoBiasResidualInteractionGateBlock,
+    "RealAgnosticDensityInjuctedNoScaleResidualInteractionBlock": RealAgnosticDensityInjuctedNoScaleResidualInteractionGateBlock,
+    "RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionBlock": RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionGateBlock,
 }
 
 scaling_classes: Dict[str, Callable] = {

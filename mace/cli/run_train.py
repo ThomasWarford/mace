@@ -721,6 +721,8 @@ def main() -> None:
         else:
             no_decay_interactions[name] = param
 
+    #import ipdb; ipdb.set_trace()
+
     param_options = dict(
         params=[
             {
@@ -841,6 +843,11 @@ def main() -> None:
     )
 
     start_epoch = 0
+    
+    logging.info(model)
+    logging.info(f"Number of parameters: {tools.count_parameters(model)}")
+    logging.info(f"Optimizer: {optimizer}")
+    
     if args.restart_latest:
         try:
             opt_start_epoch = checkpoint_handler.load_latest(
@@ -864,9 +871,6 @@ def main() -> None:
         for group in optimizer.param_groups:
             group["lr"] = args.lr
 
-    logging.info(model)
-    logging.info(f"Number of parameters: {tools.count_parameters(model)}")
-    logging.info(f"Optimizer: {optimizer}")
 
     if args.wandb:
         logging.info("Using Weights and Biases for logging")
