@@ -658,6 +658,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         default=False,
     )
     parser.add_argument(
+        "--ckpt_path",
+        type=str,
+        help="ckpt path to convert to model",
+        default=None,
+    )
+    parser.add_argument(
         "--save_cpu",
         help="Save a model to be loaded on cpu",
         action="store_true",

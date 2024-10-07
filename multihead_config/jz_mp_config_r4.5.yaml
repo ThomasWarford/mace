@@ -8,8 +8,8 @@ heads:
         E0s: /lustre/fsn1/projects/rech/gax/unh55hx/data/e0s.json
         config_type_weights:
             Default: 1.0
-        #avg_num_neighbors: 61.9649349317854
-        #mean: 0.1634233391135065
-        #std: 0.7735790334431056
+        avg_num_neighbors: 25.577826392509344
+        mean: -4.4768486192365495
+        std: 0.8080851220498861
 #test_file: /lustre/fsn1/projects/rech/gax/unh55hx/data/multihead_datasets/test/spice
 #statistics_file: /lustre/fsn1/projects/rech/gax/unh55hx/data/statistics.json 

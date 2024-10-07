@@ -8,6 +8,8 @@ from .utils import (
     config_from_atoms,
     config_from_atoms_list,
     load_from_xyz,
+    load_from_jsonbz2s,
+    load_from_jsonbz2s_go,
     load_from_h5,
     load_from_extxyzs,
     random_train_valid_split,
@@ -33,4 +35,6 @@ __all__ = [
     "dataset_from_sharded_hdf5",
     "save_AtomicData_to_HDF5",
     "save_configurations_as_HDF5",
+    "load_from_jsonbz2s",
+    "load_from_jsonbz2s_go",
 ]

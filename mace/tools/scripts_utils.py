@@ -245,6 +245,63 @@ def get_dataset_from_extxyzs(
     )
 
 
+def get_dataset_from_jsonbz2s(
+    train_path: str,
+    valid_path: str,
+    valid_fraction: float,
+    config_type_weights: Dict,
+    test_path: str = None,
+    seed: int = 1234,
+    ) -> Tuple[SubsetCollection, Optional[Dict[int, float]]]:
+    """Load training and test dataset from xyz file"""
+    atomic_energies_dict, all_train_configs, heads = data.load_from_jsonbz2s_go(
+        file_path=train_path,
+        config_type_weights=config_type_weights,
+    )
+    logging.info(
+        f"Loaded {len(all_train_configs)} training configurations from '{train_path}'"
+    )
+    if valid_path is not None:
+        _, valid_configs, _ = data.load_from_extxyzs(
+            file_path=valid_path,
+            config_type_weights=config_type_weights,
+        )
+        logging.info(
+            f"Loaded {len(valid_configs)} validation configurations from '{valid_path}'"
+        )
+        train_configs = all_train_configs
+    else:
+        logging.info(
+            "Using random %s%% of training set for validation", 100 * valid_fraction
+        )
+        train_configs, valid_configs = [], []
+        for head in heads:
+            all_train_configs_head = [
+                config for config in all_train_configs if config.head == head
+            ]
+            train_configs_head, valid_configs_head = data.random_train_valid_split(
+                all_train_configs_head, valid_fraction, seed
+            )
+            train_configs.extend(train_configs_head)
+            valid_configs.extend(valid_configs_head)
+
+    test_configs = []
+    if test_path is not None:
+        _, all_test_configs, _ = data.load_from_extxyzs(
+            file_path=test_path,
+            config_type_weights=config_type_weights,
+        )
+        # create list of tuples (config_type, list(Atoms))
+        test_configs = data.test_config_types(all_test_configs)
+        logging.info(
+            f"Loaded {len(all_test_configs)} test configurations from '{test_path}'"
+        )
+    return (
+        SubsetCollection(train=train_configs, valid=valid_configs, tests=test_configs),
+        atomic_energies_dict,
+        heads,
+    )
+
 def get_config_type_weights(ct_weights):
     """
     Get config type weights from command line argument

@@ -1081,11 +1081,21 @@ def main() -> None:
     #    all_data_loaders[test_name] = test_loader
 
     for swa_eval in swas:
-        epoch = checkpoint_handler.load_latest(
-            state=tools.CheckpointState(model, optimizer, lr_scheduler),
-            swa=swa_eval,
-            device=device,
-        )
+        if args.ckpt_path is None:
+            epoch = checkpoint_handler.load_latest(
+                state=tools.CheckpointState(model, optimizer, lr_scheduler),
+                swa=swa_eval,
+                device=device,
+            )
+        else:
+            ckpt_name = checkpoint_handler.io._get_checkpoint_filename(int(args.ckpt_path), None)
+            epoch = checkpoint_handler.load(
+                state=tools.CheckpointState(model, optimizer, lr_scheduler),
+                path=Path(args.checkpoints_dir) / ckpt_name,
+                device=device,
+            )
+            tag = tag + f"_epoch-{epoch}"
+
         model.to(device)
         if args.distributed:
             distributed_model = DDP(model, device_ids=[local_rank])
@@ -1117,10 +1127,10 @@ def main() -> None:
                 model = model.to("cpu")
             torch.save(model, model_path)
 
-            if swa_eval:
-                torch.save(model, Path(args.model_dir) / (args.name + "_swa.model"))
-            else:
-                torch.save(model, Path(args.model_dir) / (args.name + ".model"))
+            #if swa_eval:
+            #    torch.save(model, Path(args.model_dir) / (args.name + "_swa.model"))
+            #else:
+            #    torch.save(model, Path(args.model_dir) / (args.name + ".model"))
 
     if args.distributed:
         torch.distributed.barrier()

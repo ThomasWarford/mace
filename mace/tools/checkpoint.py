@@ -112,6 +112,24 @@ class CheckpointIO:
             epochs=int(match.group("epochs")),
             swa=swa,
         )
+    
+    def _get_checkpoint_paths(self) -> Optional[str]:
+        all_file_paths = self._list_file_paths()
+        checkpoint_info_list = [
+            self._parse_checkpoint_path(path) for path in all_file_paths
+        ]
+        selected_checkpoint_info_list = [
+            info for info in checkpoint_info_list if info and info.tag == self.tag
+        ]
+
+        if len(selected_checkpoint_info_list) == 0:
+            logging.warning(
+                f"Cannot find checkpoint with tag '{self.tag}' in '{self.directory}'"
+            )
+            return None
+
+        return [info.path for info in selected_checkpoint_info_list]
+
 
     def _get_latest_checkpoint_path(self, swa) -> Optional[str]:
         all_file_paths = self._list_file_paths()

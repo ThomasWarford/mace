@@ -28,6 +28,7 @@ class HDF5Dataset(Dataset):
         except KeyError:
             self.drop_last = False
         self.kwargs = kwargs
+        self.transform = kwargs['transform'] if 'transform' in kwargs else None
 
     @property
     def file(self):
@@ -57,7 +58,7 @@ class HDF5Dataset(Dataset):
             positions=subgrp["positions"][()],
             energy=unpack_value(subgrp["energy"][()]),
             forces=unpack_value(subgrp["forces"][()]),
-            stress=unpack_value(subgrp["stress"][()]),
+            stress=unpack_value(subgrp["stress"][()]), 
             virials=unpack_value(subgrp["virials"][()]),
             dipole=unpack_value(subgrp["dipole"][()]),
             charges=unpack_value(subgrp["charges"][()]),
@@ -70,6 +71,7 @@ class HDF5Dataset(Dataset):
             config_type=unpack_value(subgrp["config_type"][()]),
             pbc=unpack_value(subgrp["pbc"][()]),
             cell=unpack_value(subgrp["cell"][()]),
+            alex_config_id=unpack_value(subgrp["alex_config_id"][()]) if hasattr(subgrp, "alex_config_id") else None,
         )
         if config.head is None:
             config.head = self.kwargs.get("head")
@@ -82,13 +84,15 @@ class HDF5Dataset(Dataset):
             )
         except:
             import ipdb; ipdb.set_trace()
+        if self.transform:
+            atomic_data = self.transform(atomic_data)
         return atomic_data
 
 
 def dataset_from_sharded_hdf5(
     files: List, z_table: AtomicNumberTable, r_max: float, **kwargs
 ):
-    files = glob(files + "/*")
+    files = glob(files + "/*.h5")
     datasets = []
 
     if 'rank' not in kwargs or ('rank' in kwargs and kwargs['rank'] == 0):

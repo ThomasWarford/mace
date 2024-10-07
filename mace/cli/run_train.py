@@ -49,6 +49,59 @@ from mace.tools.finetuning_utils import (
 from mace.tools.utils import AtomicNumberTable
 from torch.utils.data import ConcatDataset
 from box import Box
+from tqdm import tqdm
+
+
+def bad_force(data):
+    forces = data["forces"]
+    forces_norm_max = forces.norm(dim=-1).max().item()
+    if forces_norm_max > 300.0:
+        return True
+    else:
+        return False
+
+def bad_iso(data):
+    forces = data["forces"]
+    n_atoms = forces.size(0)
+
+    if n_atoms > 1:
+        return False
+    else:
+        return True
+
+def bad_energy(data):
+    energy = data["energy"].item()
+    forces = data["forces"]
+    n_atoms = forces.size(0)
+    e_per_atom = energy / n_atoms
+
+    if -20.0 > e_per_atom or e_per_atom > 2.0:
+        return True
+    else:
+        return False
+
+def bad_stress(data):
+    stress = data['stress']
+    stress_norm = stress.abs().max().item()
+    if stress_norm > 1.0:
+        return True
+    else:
+        return False
+
+import multiprocessing as mp
+from tqdm import tqdm
+
+def is_bad(data):
+    """Check if a sample is 'bad' based on force, energy, and stress."""
+    return bad_force(data) or bad_energy(data) or bad_stress(data) or bad_iso(data)
+
+def filter_data(train_set):
+    """Filter out 'bad' samples from the dataset using multiprocessing."""
+    with mp.Pool(4) as pool:
+        mask = list(tqdm(pool.imap(is_bad, train_set), total=len(train_set)))
+
+    # Return the indices of the good data points (where mask is False)
+    return [i for i, bad in enumerate(mask) if not bad]
 
 def format_number(num):
     if num >= 1_000_000_000:
@@ -248,6 +301,15 @@ def main() -> None:
     
     for head, head_args in args.heads.items():
         logging.info(f"=============    Reading dataset {head} and compute     ===========")
+        
+        if head_args.transform == "stress_kbar2evA":
+            def stress_kbar2evA(atomic_data):
+                atomic_data["stress"] = atomic_data["stress"] * -1e-1 * ase.units.GPa
+                return atomic_data
+            head_transform = stress_kbar2evA
+        else: 
+            head_transform = None
+
         if head_args.train_file.endswith(".xyz"):
             # TODO: test this branch
             if head_args.valid_file is not None:
@@ -289,10 +351,10 @@ def main() -> None:
             head_args.valid_set = data.HDF5Dataset(head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()))
         else:  # This case would be for when the file path is to a directory of multiple .h5 files
             head_args.train_set = data.dataset_from_sharded_hdf5(
-                head_args.train_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank
+                head_args.train_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank, transform=head_transform
             )
             head_args.valid_set = data.dataset_from_sharded_hdf5(
-                head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank
+                head_args.valid_file, r_max=head_args.r_max, z_table=z_table, head=head, heads=list(args.heads.keys()), rank=rank, transform=head_transform
             )
         
         logging.info(f"Dataset {head} size --> {format_number(len(head_args.train_set))}")
@@ -304,10 +366,14 @@ def main() -> None:
             subset_size = int(ratio * len(head_args.train_set))
             remaining_size = len(head_args.train_set) - subset_size
 
+            val_subset_size = int(ratio * len(head_args.valid_set))
+            val_remaining_size = len(head_args.valid_set) - val_subset_size
             # Split the dataset
             head_args.train_set, _ = random_split(head_args.train_set, [subset_size, remaining_size])
+            head_args.valid_set, _ = random_split(head_args.valid_set, [val_subset_size, val_remaining_size])
 
             logging.info(f"Dataset {head} subsampled size --> {format_number(len(head_args.train_set))}")
+            logging.info(f"Dataset {head} subsampled valid size --> {format_number(len(head_args.valid_set))}")
 
 
         # head specific train_sampler
@@ -410,6 +476,14 @@ def main() -> None:
     
     train_set = ConcatDataset(train_sets.values())
 
+    # mask dataset
+    if True:
+        
+        # Now apply the filter function to your train_set
+        # masked_indices = filter_data(train_set)
+
+        masked_indices = [i for i in tqdm(range(len(train_set))) if not is_bad(train_set[i])]
+        train_set = torch.utils.data.Subset(train_set, masked_indices)
 
     if args.model == "AtomicDipolesMACE":
         atomic_energies = None

@@ -20,8 +20,8 @@ cd $ROOT_DIR
 mace_run_train \
     --name="MACE_medium_stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_agnesi_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_int-${int}x${num_int}_agnosticfirst-${agnostic_first}" \
     --loss='universal' \
-    --energy_weight=1 \
-    --forces_weight=10 \
+    --energy_weight=10 \
+    --forces_weight=1 \
     --compute_stress=True \
     --stress_weight=${stress} \
     --eval_interval=1 \
@@ -48,7 +48,7 @@ mace_run_train \
     --valid_batch_size=32 \
     --pair_repulsion \
     --distance_transform="Agnesi" \
-    --max_num_epochs=300 \
+    --max_num_epochs=400 \
     --patience=40 \
     --amsgrad \
     --seed=${SEED} \

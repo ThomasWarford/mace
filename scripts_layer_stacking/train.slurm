@@ -17,9 +17,9 @@
 #SBATCH --array=0-3%1                  # Array index range
 
 # Access arguments
-bs=32
+bs=256
 lr=0.005
-gpu=16
+gpu=2
 conf=jz_mp_config_r6.0.yaml
 r=6.0
 num_channel=128 # [[64], -128-, [256]]
@@ -35,6 +35,7 @@ num_interactions=2
 # Cleans out modules loaded in interactive and inherited by default
 module purge
  
+module load arch/h100
 # Loading modules
 module load pytorch-gpu/py3/2.3.1
  
@@ -46,7 +47,7 @@ export PATH="$PATH:/linkhome/rech/genrre01/unh55hx/.local/bin"
 DATA_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/data/multihead_dataset
 
 # Running code
-srun bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress} ${interaction_first} ${interaction} ${num_interactions} ${agnostic_first}
+bash run_multihead_5arg.sh ${bs} ${lr} ${gpu} ${conf} ${r} ${num_channel} ${num_radial} ${mlp_irreps} ${seed} ${stress} ${interaction_first} ${interaction} ${num_interactions} ${agnostic_first}
 
 #mace_run_train \
 #    --name="Test_Multihead_MultiGPU_SpiceMP_MACE" \

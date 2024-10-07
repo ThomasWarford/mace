@@ -18,6 +18,12 @@ import numpy as np
 from mace.tools import AtomicNumberTable
 from tqdm import tqdm
 
+import bz2
+
+import json
+from tqdm import tqdm
+from ase import Atoms
+
 Vector = np.ndarray  # [3,]
 Positions = np.ndarray  # [..., 3]
 Forces = np.ndarray  # [..., 3]
@@ -51,6 +57,7 @@ class Configuration:
     virials_weight: float = 1.0  # weight of config virial in loss
     config_type: Optional[str] = DEFAULT_CONFIG_TYPE  # config_type of config
     head: Optional[str] = "Default"  # head used to compute the config
+    alex_config_id: Optional[str] = None
 
 
 Configurations = List[Configuration]
@@ -144,6 +151,7 @@ def config_from_atoms(
     virials_weight = atoms.info.get("config_virials_weight", 1.0)
 
     head = atoms.info.get(head_key, "Default")
+    alex_config_id = atoms.info.get("alex_config_id", None)
 
     # fill in missing quantities but set their weight to 0.0
     if energy is None:
@@ -180,6 +188,7 @@ def config_from_atoms(
         config_type=config_type,
         pbc=pbc,
         cell=cell,
+        alex_config_id=alex_config_id
     )
 
 
@@ -199,6 +208,71 @@ def test_config_types(
             test_by_ct[ind][1].append(conf)
     return test_by_ct
 
+def load_from_jsonbz2s_go(
+    file_path: str,
+    config_type_weights: Dict,
+    energy_key: str = "energy",
+    forces_key: str = "forces",
+    stress_key: str = "stress",
+    virials_key: str = "virials",
+    dipole_key: str = "dipole",
+    charges_key: str = "charges",
+    head_key: str = "head",
+) -> Tuple[Dict[int, float], Configurations]:
+    atoms_list = atoms_from_alex_go(file_path)
+
+    atomic_energies_dict = {}
+
+    heads = set()
+    for atoms in atoms_list:
+        heads.add(atoms.info.get("head", "Default"))
+    heads = list(heads)
+
+    configs = config_from_atoms_list(
+        atoms_list,
+        config_type_weights=config_type_weights,
+        energy_key="energy",
+        forces_key="forces",
+        stress_key="stress",
+        virials_key="virials",
+        dipole_key="dipole",
+        charges_key="charges",
+        head_key="head",
+    )
+    return atomic_energies_dict, configs, heads
+
+def load_from_jsonbz2s(
+    file_path: str,
+    config_type_weights: Dict,
+    energy_key: str = "energy",
+    forces_key: str = "forces",
+    stress_key: str = "stress",
+    virials_key: str = "virials",
+    dipole_key: str = "dipole",
+    charges_key: str = "charges",
+    head_key: str = "head",
+) -> Tuple[Dict[int, float], Configurations]:
+    atoms_list = atoms_from_alex(file_path)
+
+    atomic_energies_dict = {}
+
+    heads = set()
+    for atoms in atoms_list:
+        heads.add(atoms.info.get("head", "Default"))
+    heads = list(heads)
+
+    configs = config_from_atoms_list(
+        atoms_list,
+        config_type_weights=config_type_weights,
+        energy_key="energy",
+        forces_key="forces",
+        stress_key="stress",
+        virials_key="virials",
+        dipole_key="dipole",
+        charges_key="charges",
+        head_key="head",
+    )
+    return atomic_energies_dict, configs, heads
 
 def load_from_extxyzs(
     file_path: str,
@@ -420,12 +494,236 @@ def atoms_from_hdf5_ani(file_path, positions_key='coordinates', numbers_key="spe
 def read_atoms_file(identifier):
     return ase.io.read(identifier, index=":")
 
+def read_atoms_jsonbz2_go(identifier):
+    trajs = []
+    with bz2.open(identifier, 'rt') as f:
+        data = json.load(f)
+        
+        for entry in data.keys():
+            for traj_idx, system in enumerate(data[entry]):
+                traj = []
+                for image_idx, image in enumerate(system['steps']):
+                    positions = np.array(
+                        [site['xyz'] for site in image['structure']['sites']]
+                    )
+                    atomic_numbers = np.array(
+                        [
+                            ase.data.atomic_numbers[site['species'][0]['element']]
+                            for site in image['structure']['sites']
+                        ]
+                    )
+                    cell = np.array(image['structure']['lattice']['matrix'])
+                    pbc = np.array(image['structure']['lattice']['pbc'])
+                    energy = image['energy']
+                    forces = np.array(image['forces'])
+                    #charges = np.array(
+                    #            [site['properties']['charge'] for site in image['structure']['sites']]
+                    #        )
+                    #magmom = np.array(
+                    #            [site['properties']['magmom'] for site in image['structure']['sites']]
+                    #        )
+                    stress = np.array(image['stress'])
+                    
+                    # Create the ase.Atoms object
+                    atoms = Atoms(
+                               numbers=atomic_numbers,  # Atomic numbers (list of integers)
+                               positions=positions,     # Cartesian coordinates (Nx3 array)
+                               cell=cell,               # Unit cell (3x3 matrix)
+                               pbc=pbc                  # Periodic boundary conditions (3 boolean values)
+                           )
+
+                    # Add additional properties like energy, forces, and stress if needed
+                    atoms.info['energy'] = energy
+                    atoms.arrays['forces'] = forces
+                    atoms.info['stress'] = stress
+                    config_id = os.path.basename(identifier).split('.')[0] + f"{entry}-{traj_idx}-{image_idx}"
+                    atoms.info['alex_config_id'] = config_id
+                    traj.append(atoms)
+                # put into trajs
+                trajs.append(traj)
+
+    trajs = alex_traj_removing(trajs)
+    trajs = alex_traj_subsampling(trajs)
+
+    return [atom for sublist in trajs for atom in sublist]
+
+def sample_energy_time_series_reverse(energies, relative_threshold):
+    """
+    Sample a time series of energy values from last to first, pruning away consecutive repetitive steps.
+
+    :param energies: List or array of energy values
+    :param relative_threshold: Relative threshold for considering a change significant
+    :return: Array of indices of sampled points, in ascending order
+    """
+    sampled_indices = [len(energies) - 1]  # Always include the last point
+    last_sampled_energy = energies[-1]
+
+    for i in range(len(energies) - 2, -1, -1):
+        current_energy = energies[i]
+        threshold = relative_threshold * abs(last_sampled_energy)
+        under = 0.3 * abs(last_sampled_energy) # TODO add comments
+
+        if abs(current_energy - last_sampled_energy) > threshold and abs(current_energy - last_sampled_energy) < under:
+            sampled_indices.append(i)
+            last_sampled_energy = current_energy
+
+    # Always include the first point if it's not already included
+    if sampled_indices[-1] != 0:
+        sampled_indices.append(0)
+
+    return np.array(sorted(sampled_indices))  # Return indices in ascending order
+
+def max_stress(atom):
+    stress = atom.info['stress']
+    max_stress = np.max(np.abs(stress))
+    return max_stress
+
+def max_forces(atom):
+    return np.linalg.norm(atom.arrays["forces"], axis=-1).max()
+
+def max_stress_forces_energy_per_atom(traj):
+    max_stress_value = -np.inf
+    max_forces_value = -np.inf
+    max_energy_per_atom_value = -np.inf
+    for atoms in traj:
+        stress_value = max_stress(atoms)
+        forces_value = max_forces(atoms)
+        energy_per_atom_value = atoms.info['energy'] / len(atoms)
+
+        if stress_value > max_stress_value:
+            max_stress_value = stress_value
+
+        if forces_value > max_forces_value:
+            max_forces_value = forces_value
+
+        if energy_per_atom_value > max_energy_per_atom_value:
+            max_energy_per_atom_value = energy_per_atom_value
+    return max_stress_value, max_forces_value, max_energy_per_atom_value
+
+def alex_traj_removing(trajs):
+    filtered_trajs = []
+    for traj in trajs:
+        stress_value, forces_value, energy_per_atom_value = max_stress_forces_energy_per_atom(traj)
+        final_forces_norm = np.linalg.norm(traj[-1].arrays['forces'], axis=-1).max()
+        
+        # Check if the trajectory meets the criteria
+        if (stress_value <= 500 and 
+            forces_value <= 300 and 
+            forces_value > 0.0 and
+            energy_per_atom_value <= 2.0 and 
+            final_forces_norm <= 0.005):
+            filtered_trajs.append(traj)
+    
+    return filtered_trajs
+
+def alex_traj_subsampling(trajs):
+    subsampled_trajs = []
+    
+    for traj in trajs:
+        # Skip empty trajectories
+        if not traj:
+            subsampled_trajs.append([])
+            continue
+        
+        # Remove first image if trajectory has more than one atom
+        atom_list = traj[1:] if len(traj) > 1 else traj
+        
+        # Extract energies
+        try:
+            energies = [atom.info['energy'] for atom in atom_list]
+        except KeyError:
+            print(f"Warning: 'energy' not found in atom.info for a trajectory. Skipping this trajectory.")
+            subsampled_trajs.append(traj)  # Keep the original trajectory
+            continue
+        
+        # Sample indices
+        indices = sample_energy_time_series_reverse(energies, relative_threshold=0.001)
+        
+        # Create subsampled trajectory
+        subsampled_traj = [atom_list[i] for i in indices]
+        subsampled_trajs.append(subsampled_traj)
+    
+    return subsampled_trajs
+
+def read_atoms_jsonbz2(identifier):
+    atom_list = []
+    with bz2.open(identifier, 'rt') as f:
+        data = json.load(f)
+        
+        for entry in data.keys():
+            for system in data[entry]:
+                image = system
+                #for image in system['steps']:
+                positions = np.array(
+                    [site['xyz'] for site in image['structure']['sites']]
+                )
+                atomic_numbers = np.array(
+                    [
+                        ase.data.atomic_numbers[site['species'][0]['element']]
+                        for site in image['structure']['sites']
+                    ]
+                )
+                cell = np.array(image['structure']['lattice']['matrix'])
+                pbc = np.array(image['structure']['lattice']['pbc'])
+                energy = image['energy']
+                forces = np.array(
+                            [site['properties']['forces'] for site in image['structure']['sites']]
+                        )
+                #charges = np.array(
+                #            [site['properties']['charge'] for site in image['structure']['sites']]
+                #        )
+                #magmom = np.array(
+                #            [site['properties']['magmom'] for site in image['structure']['sites']]
+                #        )
+                stress = np.array(image['data']['stress'])
+                
+                # Create the ase.Atoms object
+                atoms = Atoms(
+                           numbers=atomic_numbers,  # Atomic numbers (list of integers)
+                           positions=positions,     # Cartesian coordinates (Nx3 array)
+                           cell=cell,               # Unit cell (3x3 matrix)
+                           pbc=pbc                  # Periodic boundary conditions (3 boolean values)
+                       )
+
+                # Add additional properties like energy, forces, and stress if needed
+                atoms.info['energy'] = energy
+                atoms.arrays['forces'] = forces
+                atoms.info['stress'] = stress
+                atom_list.append(atoms)
+    return atom_list
+
+
 def atoms_from_oc20(file_path, positions_key='coordinates', numbers_key="species", energy_key='energies', forces_key='forces'):
     filenames = [f for f in os.listdir(file_path) if f.endswith(".extxyz")]
     identifiers = [os.path.join(file_path, f) for f in filenames if f.endswith(".extxyz")]
     
     with mp.Pool(16) as pool:
         results = list(tqdm(pool.imap(read_atoms_file, identifiers), total=len(identifiers)))
+    
+    # Flatten the list of lists
+    atoms_list = [atom for sublist in results for atom in sublist]
+    
+    return atoms_list
+
+
+def atoms_from_alex_go(file_path, positions_key='coordinates', numbers_key="species", energy_key='energies', forces_key='forces'):
+    filenames = [f for f in os.listdir(file_path) if f.endswith(".json.bz2") and f.startswith("alex_go")]
+    identifiers = [os.path.join(file_path, f) for f in filenames]
+    
+    with mp.Pool(4) as pool:
+        results = list(tqdm(pool.imap(read_atoms_jsonbz2_go, identifiers), total=len(identifiers)))
+    
+    # Flatten the list of lists
+    atoms_list = [atom for sublist in results for atom in sublist]
+    
+    return atoms_list
+
+def atoms_from_alex(file_path, positions_key='coordinates', numbers_key="species", energy_key='energies', forces_key='forces'):
+    filenames = [f for f in os.listdir(file_path) if f.endswith(".json.bz2") and f.startswith("alexandria")]
+    identifiers = [os.path.join(file_path, f) for f in filenames]
+    
+    with mp.Pool(16) as pool:
+        results = list(tqdm(pool.imap(read_atoms_jsonbz2, identifiers), total=len(identifiers)))
     
     # Flatten the list of lists
     atoms_list = [atom for sublist in results for atom in sublist]
@@ -537,6 +835,8 @@ def save_configurations_as_HDF5(configurations: Configurations, _, h5_file) -> N
         subgroup["stress_weight"] = write_value(config.stress_weight)
         subgroup["virials_weight"] = write_value(config.virials_weight)
         subgroup["config_type"] = write_value(config.config_type)
+        if config.alex_config_id is not None:
+            subgroup["alex_config_id"] = write_value(config.alex_config_id)
 
 
 def write_value(value):

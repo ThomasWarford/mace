@@ -13,11 +13,13 @@ ROOT_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/mace_multi_head_interface
 conf_str="${CONF%.yaml}"
 stress=${10}
 int_first=${11}
-agnostic_first=${12}
-ckpt_path=${13}
+int=${12}
+num_int=${13}
+agnostic_first=${14}
+
 cd $ROOT_DIR
-mace_plot_neighbor \
-    --name="MACE_medium_stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_agnesi_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_agnosticfirst-${agnostic_first}" \
+mace_run_train \
+    --name="stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_int-${int}x${num_int}" \
     --loss='universal' \
     --energy_weight=1 \
     --forces_weight=10 \
@@ -27,8 +29,8 @@ mace_plot_neighbor \
     --error_table='PerAtomMAE' \
     --model="MACE" \
     --interaction_first=${int_first} \
-    --interaction="RealAgnosticResidualInteractionBlock" \
-    --num_interactions=2 \
+    --interaction=${int} \
+    --num_interactions=${num_int} \
     --correlation=3 \
     --max_ell=3 \
     --r_max=${R} \
@@ -47,7 +49,7 @@ mace_plot_neighbor \
     --valid_batch_size=32 \
     --pair_repulsion \
     --distance_transform="Agnesi" \
-    --max_num_epochs=300 \
+    --max_num_epochs=400 \
     --patience=40 \
     --amsgrad \
     --seed=${SEED} \
@@ -57,10 +59,9 @@ mace_plot_neighbor \
     --save_cpu \
     --config="multihead_config/${CONF}" \
     --device=cuda \
-    --num_workers=12 \
     --distributed \
-    --agnostic_int ${agnostic_first} False \
-    --agnostic_con False False \
-    --ckpt_path ${ckpt_path} \
+    --num_workers=12 \
+    --agnostic_int ${agnostic_first} False False \
+    --agnostic_con False False False \
 
 # --name="MACE_medium_agnesi_b32_origin_mponly" \

@@ -18,7 +18,7 @@ from mace import data, tools
 from mace.data.utils import save_configurations_as_HDF5
 from mace.modules import compute_statistics
 from mace.tools import torch_geometric
-from mace.tools.scripts_utils import get_atomic_energies, get_dataset_from_xyz, get_dataset_from_h5, get_dataset_from_extxyzs
+from mace.tools.scripts_utils import get_atomic_energies, get_dataset_from_xyz, get_dataset_from_h5, get_dataset_from_extxyzs, get_dataset_from_jsonbz2s
 from mace.tools.utils import AtomicNumberTable
 
 
@@ -173,6 +173,16 @@ def main():
             test_path=args.test_file,
             seed=args.seed,
         ) 
+    elif "alexandria" in args.train_file and os.path.isdir(args.train_file):
+        collections, atomic_energies_dict, _ = get_dataset_from_jsonbz2s(
+            train_path=args.train_file,
+            valid_path=args.valid_file,
+            valid_fraction=args.valid_fraction,
+            config_type_weights=config_type_weights,
+            test_path=args.test_file,
+            seed=args.seed,
+        ) 
+
 
 
     # Atomic number table
@@ -189,6 +199,12 @@ def main():
         zs_list = ast.literal_eval(args.atomic_numbers)
         assert isinstance(zs_list, list)
         z_table = tools.get_atomic_number_table_from_zs(zs_list)
+
+    try:
+        import torch
+        torch.save(z_table, 'z_table.pt')
+    except:
+        print(z_table)
 
     logging.info("Preparing training set")
     if args.shuffle:
@@ -283,5 +299,5 @@ def main():
 
 if __name__ == "__main__":
     mp.set_start_method('spawn')
-    os.chdir("/mnt/petrelfs/linchen/FoundationalModel/mace_multi_head_interface")
+    #os.chdir("/mnt/petrelfs/linchen/FoundationalModel/mace_multi_head_interface")
     main()
