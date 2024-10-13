@@ -94,7 +94,10 @@ def main() -> None:
 
     # Setup
     tools.set_seeds(args.seed)
-    tools.setup_logger(level=args.log_level, tag=log_tag, directory=args.log_dir, rank=rank)
+    
+    reduced_log_tag = "reduced_save_log"
+
+    tools.setup_logger(level=args.log_level, tag=reduced_log_tag, directory=args.log_dir, rank=rank)
 
     if args.distributed:
         torch.cuda.set_device(local_rank)
@@ -1118,6 +1121,8 @@ def main() -> None:
 
         if rank == 0:
             # Save entire model
+            # name length hack
+            tag = tag[100:]
             if swa_eval:
                 model_path = Path(args.checkpoints_dir) / (tag + "_swa.model")
             else:
@@ -1125,6 +1130,7 @@ def main() -> None:
             logging.info(f"Saving model to {model_path}")
             if args.save_cpu:
                 model = model.to("cpu")
+
             torch.save(model, model_path)
 
             #if swa_eval:

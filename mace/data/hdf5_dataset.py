@@ -63,7 +63,7 @@ class HDF5Dataset(Dataset):
             dipole=unpack_value(subgrp["dipole"][()]),
             charges=unpack_value(subgrp["charges"][()]),
             weight=unpack_value(subgrp["weight"][()]),
-            head=unpack_value(subgrp["head"][()]) if hasattr(subgrp, "head") else None,
+            head=None, # do not asign head according to h5
             energy_weight=unpack_value(subgrp["energy_weight"][()]),
             forces_weight=unpack_value(subgrp["forces_weight"][()]),
             stress_weight=unpack_value(subgrp["stress_weight"][()]),
@@ -71,7 +71,7 @@ class HDF5Dataset(Dataset):
             config_type=unpack_value(subgrp["config_type"][()]),
             pbc=unpack_value(subgrp["pbc"][()]),
             cell=unpack_value(subgrp["cell"][()]),
-            alex_config_id=unpack_value(subgrp["alex_config_id"][()]) if hasattr(subgrp, "alex_config_id") else None,
+            alex_config_id=unpack_value(subgrp["alex_config_id"][()]) if "alex_config_id" in subgrp else None,
         )
         if config.head is None:
             config.head = self.kwargs.get("head")

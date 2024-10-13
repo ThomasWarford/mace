@@ -21,6 +21,27 @@ from mace.tools import torch_geometric
 from mace.tools.scripts_utils import get_atomic_energies, get_dataset_from_xyz, get_dataset_from_h5, get_dataset_from_extxyzs, get_dataset_from_jsonbz2s
 from mace.tools.utils import AtomicNumberTable
 
+import time
+import random
+from functools import wraps
+
+def retry_with_backoff(retries=5, backoff_in_seconds=1):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            x = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except BlockingIOError as e:
+                    if x == retries:
+                        raise e
+                    sleep = (backoff_in_seconds * 2 ** x +
+                             random.uniform(0, 1))
+                    time.sleep(sleep)
+                    x += 1
+        return wrapper
+    return decorator
 
 def compute_stats_target(
     file: str,
@@ -94,11 +115,13 @@ def get_prime_factors(n: int):
     return factors
 
 # Define Task for Multiprocessiing
+@retry_with_backoff()
 def multi_train_hdf5(process, h5_prefix, drop_last, split_train):
     with h5py.File(h5_prefix + "train/train_" + str(process)+".h5", "w") as f:
         f.attrs["drop_last"] = drop_last
         save_configurations_as_HDF5(split_train, process, f)
 
+@retry_with_backoff()
 def multi_valid_hdf5(process, h5_prefix, drop_last, split_valid):
     with h5py.File(h5_prefix + "val/val_" + str(process)+".h5", "w") as f:
         f.attrs["drop_last"] = drop_last
@@ -218,7 +241,7 @@ def main():
 
     processes = []
     for i in range(args.num_process):
-        p = mp.Process(target=multi_train_hdf5, args=[i, args.h5_prefix, drop_last, split_train[i]])
+        p = mp.Process(target=multi_train_hdf5, args=[args.idx if args.idx is not None else i, args.h5_prefix, drop_last, split_train[i]])
         p.start()
         processes.append(p)
 
@@ -267,7 +290,7 @@ def main():
 
     processes = []
     for i in range(args.num_process):
-        p = mp.Process(target=multi_valid_hdf5, args=[i, args.h5_prefix, drop_last, split_valid[i]])
+        p = mp.Process(target=multi_valid_hdf5, args=[args.idx if args.idx is not None else i, args.h5_prefix, drop_last, split_valid[i]])
         p.start()
         processes.append(p)
 

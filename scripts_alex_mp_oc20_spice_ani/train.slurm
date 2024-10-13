@@ -19,7 +19,7 @@
 bs=16
 lr=0.005
 gpu=32
-conf=jz_alex_config_r6.0.yaml
+conf=jz_spice_mp_alexandria_oc20_ani_r6.0.yaml
 r=6.0
 num_channel=128 # [[64], -128-, [256]]
 mlp_irreps="16x0e" # [["8x0e"], -"16x0e"-, ["32x0e"], ["64x0e"]]

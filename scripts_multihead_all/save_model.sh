@@ -1,7 +1,6 @@
 #!/bin/bash
 DATA_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/data/multihead_dataset
-##module load arch/h100
-##module load pytorch-gpu/py3/2.3.1
+module load pytorch-gpu/py3/2.3.1
 export PATH="$PATH:/linkhome/rech/genrre01/unh55hx/.local/bin"
 REAL_BATCH_SIZE=$(($1 * $3))
 CONF=$4
@@ -10,17 +9,17 @@ NUM_CHANNEL=$6
 NUM_RADIAL=$7
 MLP_IRREPS=$8
 SEED=$9
-ROOT_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/mace_multi_head_interface_bk
+ROOT_DIR=/lustre/fsn1/projects/rech/gax/unh55hx/mace_multi_head_interface
 conf_str="${CONF%.yaml}"
 stress=${10}
 int_first=${11}
 int=${12}
 num_int=${13}
 agnostic_first=${14}
-
+ckpt_path=${15}
 cd $ROOT_DIR
-mace_run_train \
-    --name="stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_int-${int}x${num_int}" \
+mace_plot_neighbor \
+    --name="MACE_medium_stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_agnesi_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_int-${int}x${num_int}_agnosticfirst-${agnostic_first}" \
     --loss='universal' \
     --energy_weight=1 \
     --forces_weight=10 \
@@ -50,7 +49,7 @@ mace_run_train \
     --valid_batch_size=32 \
     --pair_repulsion \
     --distance_transform="Agnesi" \
-    --max_num_epochs=400 \
+    --max_num_epochs=300 \
     --patience=40 \
     --amsgrad \
     --seed=${SEED} \
@@ -60,9 +59,10 @@ mace_run_train \
     --save_cpu \
     --config="multihead_config/${CONF}" \
     --device=cuda \
+    --num_workers=12 \
     --distributed \
-    --num_workers=8 \
     --agnostic_int ${agnostic_first} False False \
     --agnostic_con False False False \
+    --ckpt_path ${ckpt_path} \
 
 # --name="MACE_medium_agnesi_b32_origin_mponly" \

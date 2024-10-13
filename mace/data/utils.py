@@ -35,6 +35,7 @@ Pbc = tuple  # (3,)
 
 DEFAULT_CONFIG_TYPE = "Default"
 DEFAULT_CONFIG_TYPE_WEIGHTS = {DEFAULT_CONFIG_TYPE: 1.0}
+N_PROC=1
 
 
 @dataclass
@@ -496,12 +497,14 @@ def read_atoms_file(identifier):
 
 def read_atoms_jsonbz2_go(identifier):
     trajs = []
+    trajs_ids = []
     with bz2.open(identifier, 'rt') as f:
         data = json.load(f)
         
         for entry in data.keys():
             for traj_idx, system in enumerate(data[entry]):
                 traj = []
+                config_ids = []
                 for image_idx, image in enumerate(system['steps']):
                     positions = np.array(
                         [site['xyz'] for site in image['structure']['sites']]
@@ -536,14 +539,51 @@ def read_atoms_jsonbz2_go(identifier):
                     atoms.info['energy'] = energy
                     atoms.arrays['forces'] = forces
                     atoms.info['stress'] = stress
-                    config_id = os.path.basename(identifier).split('.')[0] + f"{entry}-{traj_idx}-{image_idx}"
+                    config_id = os.path.basename(identifier).split('.')[0] + f"-{entry}-{traj_idx}-{image_idx}"
                     atoms.info['alex_config_id'] = config_id
                     traj.append(atoms)
+                    config_ids.append(config_id)
                 # put into trajs
                 trajs.append(traj)
+                trajs_ids.append(config_ids)
 
-    trajs = alex_traj_removing(trajs)
-    trajs = alex_traj_subsampling(trajs)
+    total_trajs = len(trajs)
+    total_images = sum(len(traj) for traj in trajs)
+
+    trajs, removed_trajs_ids = alex_traj_removing(trajs, trajs_ids)
+    trajs, subsampled_trajs_ids = alex_traj_subsampling(trajs, removed_trajs_ids)
+
+    # logging:
+    selected_trajs = len([traj for traj in trajs if traj])
+    selected_images = sum(len(traj) for traj in trajs)
+    
+
+    # Prepare the log content with percentages
+    traj_percentage = (selected_trajs / total_trajs) * 100 if total_trajs > 0 else 0
+    image_percentage = (selected_images / total_images) * 100 if total_images > 0 else 0
+    
+    log_content = [
+        f"Trajectories: \t{selected_trajs} \t/ \t{total_trajs} \t[{traj_percentage:.2f}%]",
+        f"Images: \t{selected_images} \t/ \t{total_images} \t[{image_percentage:.2f}%]\n"
+    ]
+    
+    # Process each trajectory for detailed logging
+    for orig_traj_ids, final_traj_ids in zip(trajs_ids, subsampled_trajs_ids):
+        if not final_traj_ids:  # This trajectory was removed
+            entry = orig_traj_ids[0].split('-')[2]  # Extract entry from the first config_id
+            log_content.append(f"{entry}-{traj_idx}: removed")
+        else:
+            entry = final_traj_ids[0].split('-')[1]
+            traj_idx = final_traj_ids[0].split('-')[2]
+            kept_images = len(final_traj_ids)
+            total_images = len(orig_traj_ids)
+            kept_indices = [int(config_id.split('-')[-1]) for config_id in final_traj_ids]
+            log_content.append(f"{entry}-{traj_idx}: {kept_images}/{total_images} [{', '.join(map(str, kept_indices))}]")
+    
+    # Write the log file
+    log_filename = f"{os.path.basename(identifier).split('.')[0]}.processing.log"
+    with open(log_filename, 'w') as log_file:
+        log_file.write('\n'.join(log_content))
 
     return [atom for sublist in trajs for atom in sublist]
 
@@ -600,9 +640,10 @@ def max_stress_forces_energy_per_atom(traj):
             max_energy_per_atom_value = energy_per_atom_value
     return max_stress_value, max_forces_value, max_energy_per_atom_value
 
-def alex_traj_removing(trajs):
+def alex_traj_removing(trajs, trajs_ids):
     filtered_trajs = []
-    for traj in trajs:
+    filtered_trajs_ids = []
+    for traj, config_ids in zip(trajs, trajs_ids):
         stress_value, forces_value, energy_per_atom_value = max_stress_forces_energy_per_atom(traj)
         final_forces_norm = np.linalg.norm(traj[-1].arrays['forces'], axis=-1).max()
         
@@ -611,29 +652,42 @@ def alex_traj_removing(trajs):
             forces_value <= 300 and 
             forces_value > 0.0 and
             energy_per_atom_value <= 2.0 and 
+            len(traj) >= 4 and
             final_forces_norm <= 0.005):
             filtered_trajs.append(traj)
+            filtered_trajs_ids.append(config_ids)
+        else:
+            filtered_trajs.append([])
+            filtered_trajs_ids.append([])
     
-    return filtered_trajs
+    return filtered_trajs, filtered_trajs_ids
 
-def alex_traj_subsampling(trajs):
+def alex_traj_subsampling(trajs, trajs_ids):
     subsampled_trajs = []
+    subsampled_trajs_ids = []
     
-    for traj in trajs:
+    alex_e0s = {1: -1.11734008, 2: 0.00096759, 3: -0.29754725, 4: -0.01781697, 5: -0.26885011, 6: -1.26173507, 7: -3.12438806, 8: -1.54838784, 9: -0.51882044, 10: -0.01241601, 11: -0.22883163, 12: -0.00951015, 13: -0.21630193, 14: -0.8263903, 15: -1.88816619, 16: -0.89160769, 17: -0.25828273, 18: -0.04925973, 19: -0.22697913, 20: -0.0927795, 21: -2.11396364, 22: -2.50054871, 23: -3.70477179, 24: -5.60261985, 25: -5.32541181, 26: -3.52004933, 27: -1.93555024, 28: -0.9351969, 29: -0.60025846, 30: -0.1651332, 31: -0.32990651, 32: -0.77971828, 33: -1.68367812, 34: -0.76941032, 35: -0.22213843, 36: -0.0335879, 37: -0.1881724, 38: -0.06826294, 39: -2.17084228, 40: -2.28579303, 41: -3.13429753, 42: -4.60211419, 43: -3.45201492, 44: -2.38073513, 45: -1.46855515, 46: -1.4773126, 47: -0.33954585, 48: -0.16843877, 49: -0.35470981, 50: -0.83642657, 51: -1.41101987, 52: -0.65740879, 53: -0.18964571, 54: -0.00857582, 55: -0.13771876, 56: -0.03457659, 57: -0.45580806, 58: -1.3309175, 59: -0.29671824, 60: -0.30391193, 61: -0.30898427, 62: -0.25470891, 63: -8.38001538, 64: -10.38896525, 65: -0.3059505, 66: -0.30676216, 67: -0.30874667, 68: -0.31610927, 69: -0.25190039, 70: -0.06431414, 71: -0.31997586, 72: -3.52770927, 73: -3.54492209, 74: -4.65658356, 75: -4.70108713, 76: -2.88257209, 77: -1.46779304, 78: -0.50269936, 79: -0.28801193, 80: -0.12454674, 81: -0.31737194, 82: -0.77644932, 83: -1.32627283, 89: -0.26827152, 90: -0.90817426, 91: -2.47653193, 92: -4.90438537, 93: -7.63378961, 94: -10.77237713}
+    
+    for traj, config_ids in zip(trajs, trajs_ids):
         # Skip empty trajectories
         if not traj:
             subsampled_trajs.append([])
+            subsampled_trajs_ids.append([])
             continue
+        
+        zs = traj[0].numbers
+        E0 = sum(alex_e0s[z] for z in zs if z in alex_e0s)
         
         # Remove first image if trajectory has more than one atom
         atom_list = traj[1:] if len(traj) > 1 else traj
+        config_list = config_ids[1:] if len(traj) > 1 else config_ids
         
         # Extract energies
         try:
-            energies = [atom.info['energy'] for atom in atom_list]
+            energies = [(atom.info['energy'] - E0) for atom in atom_list]
         except KeyError:
             print(f"Warning: 'energy' not found in atom.info for a trajectory. Skipping this trajectory.")
-            subsampled_trajs.append(traj)  # Keep the original trajectory
+            # subsampled_trajs.append(traj)  # Keep the original trajectory
             continue
         
         # Sample indices
@@ -641,9 +695,11 @@ def alex_traj_subsampling(trajs):
         
         # Create subsampled trajectory
         subsampled_traj = [atom_list[i] for i in indices]
+        subsampled_configs = [config_list[i] for i in indices]
         subsampled_trajs.append(subsampled_traj)
+        subsampled_trajs_ids.append(subsampled_configs)
     
-    return subsampled_trajs
+    return subsampled_trajs, subsampled_trajs_ids
 
 def read_atoms_jsonbz2(identifier):
     atom_list = []
@@ -697,7 +753,7 @@ def atoms_from_oc20(file_path, positions_key='coordinates', numbers_key="species
     filenames = [f for f in os.listdir(file_path) if f.endswith(".extxyz")]
     identifiers = [os.path.join(file_path, f) for f in filenames if f.endswith(".extxyz")]
     
-    with mp.Pool(16) as pool:
+    with mp.Pool(N_PROC) as pool:
         results = list(tqdm(pool.imap(read_atoms_file, identifiers), total=len(identifiers)))
     
     # Flatten the list of lists
@@ -710,7 +766,7 @@ def atoms_from_alex_go(file_path, positions_key='coordinates', numbers_key="spec
     filenames = [f for f in os.listdir(file_path) if f.endswith(".json.bz2") and f.startswith("alex_go")]
     identifiers = [os.path.join(file_path, f) for f in filenames]
     
-    with mp.Pool(4) as pool:
+    with mp.Pool(N_PROC) as pool:
         results = list(tqdm(pool.imap(read_atoms_jsonbz2_go, identifiers), total=len(identifiers)))
     
     # Flatten the list of lists
@@ -722,7 +778,7 @@ def atoms_from_alex(file_path, positions_key='coordinates', numbers_key="species
     filenames = [f for f in os.listdir(file_path) if f.endswith(".json.bz2") and f.startswith("alexandria")]
     identifiers = [os.path.join(file_path, f) for f in filenames]
     
-    with mp.Pool(16) as pool:
+    with mp.Pool(N_PROC) as pool:
         results = list(tqdm(pool.imap(read_atoms_jsonbz2, identifiers), total=len(identifiers)))
     
     # Flatten the list of lists

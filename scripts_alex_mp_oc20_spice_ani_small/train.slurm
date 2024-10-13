@@ -3,7 +3,7 @@
 #SBATCH --account=gax@h100           # account
 #SBATCH --partition=gpu_p6
 #SBATCH -C h100                      # target H100 nodes
-#SBATCH --nodes=8                    # number of node
+#SBATCH --nodes=4                    # number of node
 #SBATCH --ntasks-per-node=4          # number of MPI tasks per node (here = number of GPUs per node)
 #SBATCH --gres=gpu:4                 # number of GPUs per node (max 4 for H100 nodes)
 #SBATCH --cpus-per-task=16            # number of CPUs per task (here 1/4 of the node)
@@ -16,10 +16,10 @@
 ##SBATCH --hint=nomultithread         # hyperthreading deactivated
 
 # Access arguments
-bs=16
+bs=32
 lr=0.005
-gpu=32
-conf=jz_alex_config_r6.0.yaml
+gpu=16
+conf=jz_mp_alexandria_r6.0_small.yaml
 r=6.0
 num_channel=128 # [[64], -128-, [256]]
 mlp_irreps="16x0e" # [["8x0e"], -"16x0e"-, ["32x0e"], ["64x0e"]]

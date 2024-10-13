@@ -19,6 +19,8 @@ from .blocks import (
     RealAgnosticResidualInteractionBlock,
     RealAgnosticInteractionGateBlock,
     RealAgnosticResidualInteractionGateBlock,
+    RealAgnosticSimplifiedDensityInteractionBlock,
+    RealAgnosticSimplifiedDensityResidualInteractionBlock,
     RealAgnosticDensityNormalizedInteractionGateBlock,
     RealAgnosticDensityNormalizedNoScaleInteractionGateBlock,
     RealAgnosticDensityInjuctedInteractionGateBlock,
@@ -85,6 +87,8 @@ interaction_classes: Dict[str, Type[InteractionBlock]] = {
     "RealAgnosticDensityInjuctedNoScaleNoBiasResidualInteractionBlock": RealAgnosticDensityInjuctedNoScaleNoBiasResidualInteractionGateBlock,
     "RealAgnosticDensityInjuctedNoScaleResidualInteractionBlock": RealAgnosticDensityInjuctedNoScaleResidualInteractionGateBlock,
     "RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionBlock": RealAgnosticDensityInjuctUnnormalizedNoScaleInteractionGateBlock,
+    "RASimpleDensityIntBlock": RealAgnosticSimplifiedDensityInteractionBlock,
+    "RASimpleDensityResidualIntBlock": RealAgnosticSimplifiedDensityResidualInteractionBlock,
 }
 
 scaling_classes: Dict[str, Callable] = {

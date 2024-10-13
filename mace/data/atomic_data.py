@@ -42,6 +42,7 @@ class AtomicData(torch_geometric.data.Data):
     forces_weight: torch.Tensor
     stress_weight: torch.Tensor
     virials_weight: torch.Tensor
+    alex_config_id: str
 
     def __init__(
         self,
@@ -63,6 +64,7 @@ class AtomicData(torch_geometric.data.Data):
         virials: Optional[torch.Tensor],  # [1,3,3]
         dipole: Optional[torch.Tensor],  # [, 3]
         charges: Optional[torch.Tensor],  # [n_nodes, ]
+        alex_config_id: Optional[str],
     ):
         # Check shapes
         num_nodes = node_attrs.shape[0]
@@ -106,6 +108,7 @@ class AtomicData(torch_geometric.data.Data):
             "virials": virials,
             "dipole": dipole,
             "charges": charges,
+            "alex_config_id": alex_config_id,
         }
         super().__init__(**data)
 
@@ -130,6 +133,9 @@ class AtomicData(torch_geometric.data.Data):
             head = torch.tensor(heads.index(config.head), dtype=torch.long)
         except:
             head = torch.tensor(len(heads) - 1, dtype=torch.long)
+
+        
+        alex_config_id = config.alex_config_id
 
         cell = (
             torch.tensor(config.cell, dtype=torch.get_default_dtype())
@@ -223,6 +229,7 @@ class AtomicData(torch_geometric.data.Data):
             virials=virials,
             dipole=dipole,
             charges=charges,
+            alex_config_id=alex_config_id, 
         )
 
 

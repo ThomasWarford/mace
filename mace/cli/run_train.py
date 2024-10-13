@@ -302,7 +302,7 @@ def main() -> None:
     for head, head_args in args.heads.items():
         logging.info(f"=============    Reading dataset {head} and compute     ===========")
         
-        if head_args.transform == "stress_kbar2evA":
+        if head_args.get("transform", None) and head_args.transform == "stress_kbar2evA":
             def stress_kbar2evA(atomic_data):
                 atomic_data["stress"] = atomic_data["stress"] * -1e-1 * ase.units.GPa
                 return atomic_data
@@ -477,7 +477,7 @@ def main() -> None:
     train_set = ConcatDataset(train_sets.values())
 
     # mask dataset
-    if True:
+    if False:
         
         # Now apply the filter function to your train_set
         # masked_indices = filter_data(train_set)

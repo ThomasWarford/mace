@@ -1,0 +1,20 @@
+avg_num_neighbor_head: alex_pbe
+device: cuda
+multi_processed_test: True
+heads: 
+    alex_pbe:
+        train_file: /lustre/fsn1/projects/rech/gax/unh55hx/origin_data/data/alexandria/alexandria.icams.rub.de/data/pbe/geo_opt_paths/processed_data/train
+        valid_file: /lustre/fsn1/projects/rech/gax/unh55hx/origin_data/data/alexandria/alexandria.icams.rub.de/data/pbe/geo_opt_paths/processed_data/val
+        E0s: /lustre/fsn1/projects/rech/gax/unh55hx/data/e0s.json
+        config_type_weights:
+            Default: 1.0
+        transform: stress_kbar2evA
+        avg_num_neighbors: 46.50813421532226 
+        mean: -3.73667439961074
+        std: 0.4558925068271681
+
+          #train_file: /lustre/fsn1/projects/rech/gax/unh55hx/origin_data/data/alexandria/alexandria.icams.rub.de/data/pbe/geo_opt_paths/group1/processed_data/train
+          #valid_file: /lustre/fsn1/projects/rech/gax/unh55hx/origin_data/data/alexandria/alexandria.icams.rub.de/data/pbe/geo_opt_paths/group1/processed_data/val
+#test_file: /lustre/fsn1/projects/rech/gax/unh55hx/data/multihead_datasets/test/spice
+#statistics_file: /lustre/fsn1/projects/rech/gax/unh55hx/data/statistics.json 
+#mean -3.73667439961074, std 0.4558925068271681

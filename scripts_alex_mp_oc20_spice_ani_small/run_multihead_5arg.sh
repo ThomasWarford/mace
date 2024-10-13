@@ -20,7 +20,7 @@ agnostic_first=${14}
 
 cd $ROOT_DIR
 mace_run_train \
-    --name="stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_int-${int}x${num_int}" \
+    --name="stress${stress}_nc${NUM_CHANNEL}_nr${NUM_RADIAL}_MLP${MLP_IRREPS}_b${REAL_BATCH_SIZE}_lr$2_${conf_str}_intfirst-${int_first}_int-${int}x${num_int}_headbugfixed" \
     --loss='universal' \
     --energy_weight=1 \
     --forces_weight=10 \
@@ -61,7 +61,7 @@ mace_run_train \
     --config="multihead_config/${CONF}" \
     --device=cuda \
     --distributed \
-    --num_workers=8 \
+    --num_workers=4 \
     --agnostic_int ${agnostic_first} False False \
     --agnostic_con False False False \
 
