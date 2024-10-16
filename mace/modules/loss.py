@@ -4,6 +4,8 @@
 # This program is distributed under the MIT License (see MIT.md)
 ###########################################################################################
 
+from abc import abstractmethod
+
 import torch
 
 from mace.tools import TensorDict
@@ -380,4 +382,51 @@ class WeightedEnergyForcesDipoleLoss(torch.nn.Module):
         return (
             f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f}, "
             f"forces_weight={self.forces_weight:.3f}, dipole_weight={self.dipole_weight:.3f})"
+        )
+
+
+class RegularizedLoss(torch.nn.Module):
+    def __init__(self, base_loss: torch.nn.Module, reg_weight=1.0) -> None:
+        super().__init__()
+        self.base_loss = base_loss
+        self.reg_weight = reg_weight
+
+    def forward(
+        self, ref: Batch, pred: TensorDict, model: torch.nn.parameter
+    ) -> torch.Tensor:
+        base_loss_value = self.base_loss(ref, pred)
+        reg_term = self.reg_weight * self.compute_regularization(model)
+        return base_loss_value + reg_term
+
+    @abstractmethod
+    def compute_regularization(
+        self,
+        model: torch.nn.module,
+    ) -> torch.Tensor:
+        return None
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(base_loss={self.base_loss}, "
+            f"reg_weight={self.reg_weight:.3f})"
+        )
+
+
+class L2PairwiseLoss(RegularizedLoss):
+    def compute_regularization(self, model: torch.nn.module) -> torch.Tensor:
+        # TODO: add argument to apply regularization for some parts only. Should this function take torch.module or MACE # pylint: disable=fixme
+
+        for name, parameters in model.named_parameters():
+            if name == "fully_connected":
+                return torch.sum(torch.square(parameters))
+
+        return 0.0
+        # TODO: Check if raising error here is appropriate # pylint: disable=fixme
+
+    # do some stuff with indexing!!
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__} reg_weight={self.reg_weight:.3f}), "
+            f"base_loss={self.base_loss}"
         )
