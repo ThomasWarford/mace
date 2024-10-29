@@ -395,7 +395,7 @@ class RegularizedLoss(torch.nn.Module):
         self, ref: Batch, pred: TensorDict, model: torch.nn.parameter
     ) -> torch.Tensor:
         base_loss_value = self.base_loss(ref, pred)
-        reg_term = self.reg_weight * self.compute_regularization(model)
+        reg_term = self.compute_regularization(model)
         return base_loss_value + reg_term
 
     @abstractmethod
@@ -421,7 +421,7 @@ class L2PairwiseRegularizedLoss(RegularizedLoss):
             pairwise_differences = final_weights[:, None] - final_weights[:, :, None]
             sum_of_squares += torch.pow(pairwise_differences, 2).sum()
 
-        return sum_of_squares
+        return self.reg_weight * sum_of_squares
 
     def __repr__(self):
         return (
