@@ -448,8 +448,8 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--regularization",
         help="use regularization true/false",
-        default=None,
-        type=bool,
+        action="store_true",
+        default=False,
     )
 
     parser.add_argument(
