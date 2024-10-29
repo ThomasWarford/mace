@@ -401,9 +401,9 @@ class RegularizedLoss(torch.nn.Module):
     @abstractmethod
     def compute_regularization(
         self,
-        model: torch.nn.module,
+        model: torch.nn.Module,
     ) -> torch.Tensor:
-        return None
+        raise NotImplementedError
 
     def __repr__(self):
         return (
@@ -412,18 +412,16 @@ class RegularizedLoss(torch.nn.Module):
         )
 
 
-class L2PairwiseLoss(RegularizedLoss):
-    def compute_regularization(self, model: torch.nn.module) -> torch.Tensor:
-        # TODO: add argument to apply regularization for some parts only. Should this function take torch.module or MACE # pylint: disable=fixme
+class L2PairwiseRegularizedLoss(RegularizedLoss):
+    def compute_regularization(self, model: torch.nn.Module) -> torch.Tensor:
+        sum_of_squares = 0.0
 
-        for name, parameters in model.named_parameters():
-            if name == "fully_connected":
-                return torch.sum(torch.square(parameters))
+        for readout in model.readouts:
+            final_weights = list(readout.modules())[-2].weight_view_for_instruction(0)
+            pairwise_differences = final_weights[:, None] - final_weights[:, :, None]
+            sum_of_squares += torch.pow(pairwise_differences, 2).sum()
 
-        return 0.0
-        # TODO: Check if raising error here is appropriate # pylint: disable=fixme
-
-    # do some stuff with indexing!!
+        return sum_of_squares
 
     def __repr__(self):
         return (
