@@ -388,6 +388,8 @@ def get_loss_fn(
     args: argparse.Namespace,
     dipole_only: bool,
     compute_dipole: bool,
+    regularization: bool,
+    reg_weight: float,
 ) -> torch.nn.Module:
     if args.loss == "weighted":
         loss_fn = modules.WeightedEnergyForcesLoss(
@@ -437,6 +439,8 @@ def get_loss_fn(
         )
     else:
         loss_fn = modules.WeightedEnergyForcesLoss(energy_weight=1.0, forces_weight=1.0)
+    if regularization:
+        loss_fn = modules.PairwiseRegularizedLoss(loss_fn, reg_weight)
     return loss_fn
 
 

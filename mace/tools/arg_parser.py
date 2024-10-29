@@ -446,6 +446,20 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         ],
     )
     parser.add_argument(
+        "--regularization",
+        help="use regularization true/false",
+        default=None,
+        type=bool,
+    )
+
+    parser.add_argument(
+        "--reg_weight",
+        help="regularization",
+        default=2e-5,
+        type=float,
+    )
+
+    parser.add_argument(
         "--forces_weight", help="weight of forces loss", type=float, default=100.0
     )
     parser.add_argument(
