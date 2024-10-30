@@ -22,6 +22,7 @@ from .blocks import (
 )
 from .loss import (
     DipoleSingleLoss,
+    L2PairwiseRegularizedLoss,
     UniversalLoss,
     WeightedEnergyForcesDipoleLoss,
     WeightedEnergyForcesLoss,
