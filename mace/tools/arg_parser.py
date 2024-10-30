@@ -449,6 +449,15 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         "--forces_weight", help="weight of forces loss", type=float, default=100.0
     )
     parser.add_argument(
+        "--regularization",
+        help="type of regularization",
+        default=None,
+        choices=[None, "l2_pairwise"],
+    )
+    parser.add_argument(
+        "--reg_weight", help="weight of regularization", type=float, default=1e-5
+    )
+    parser.add_argument(
         "--swa_forces_weight",
         "--stage_two_forces_weight",
         help="weight of forces loss after starting Stage Two (previously called swa)",

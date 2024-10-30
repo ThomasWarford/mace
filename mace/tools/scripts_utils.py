@@ -440,6 +440,18 @@ def get_loss_fn(
     return loss_fn
 
 
+def get_reg_fn(
+    args: argparse.Namespace,
+) -> Optional[modules.regularization.Regularization]:
+    if args.regularization == "l2_pairwise":
+        reg_fn = modules.regularization.L2PairwiseRegularization(
+            reg_weight=args.reg_weight
+        )
+    else:
+        reg_fn = None
+    return reg_fn
+
+
 def get_swa(
     args: argparse.Namespace,
     model: torch.nn.Module,
@@ -763,6 +775,7 @@ def create_error_table(
         _, metrics = evaluate(
             model,
             loss_fn=loss_fn,
+            reg_fn=None,
             data_loader=data_loader,
             output_args=output_args,
             device=device,

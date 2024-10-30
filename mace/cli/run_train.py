@@ -47,6 +47,7 @@ from mace.tools.scripts_utils import (
     get_loss_fn,
     get_optimizer,
     get_params_options,
+    get_reg_fn,
     get_swa,
     print_git_commit,
     setup_wandb,
@@ -499,6 +500,7 @@ def run(args: argparse.Namespace) -> None:
         )
 
     loss_fn = get_loss_fn(args, dipole_only, args.compute_dipole)
+    reg_fn = get_reg_fn(args)
     args.avg_num_neighbors = get_avg_num_neighbors(head_configs, args, train_loader, device)
 
     # Model
@@ -518,6 +520,7 @@ def run(args: argparse.Namespace) -> None:
     )
     logging.info(f"Learning rate: {args.lr}, weight decay: {args.weight_decay}")
     logging.info(loss_fn)
+    logging.info(f"Regularization: {reg_fn}")
 
     # Optimizer
     param_options = get_params_options(args, model)
@@ -579,6 +582,7 @@ def run(args: argparse.Namespace) -> None:
     tools.train(
         model=model,
         loss_fn=loss_fn,
+        reg_fn=reg_fn,
         train_loader=train_loader,
         valid_loaders=valid_loaders,
         optimizer=optimizer,
