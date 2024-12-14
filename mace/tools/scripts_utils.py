@@ -540,6 +540,10 @@ def get_reg_fn(
         reg_fn = modules.regularization.L2PairwiseRegularization(
             reg_weight=args.reg_weight
         )
+    elif args.regularization == "l2":
+        reg_fn = modules.regularization.L2Regularization(
+            reg_weight=args.reg_weight
+        )
     else:
         reg_fn = None
     return reg_fn

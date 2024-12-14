@@ -30,3 +30,8 @@ class L2PairwiseRegularization(Regularization):
         head_embs = model.head_embedding.linear.weight_view_for_instruction(0) # len(heads), head_emb_dim
         pairwise_differences = head_embs[:, None, :] - head_embs[None, :, :]
         return torch.sum(torch.pow(pairwise_differences, 2))
+
+class L2Regularization(Regularization):
+    def compute_regularization(self, model: torch.nn.Module) -> torch.Tensor:
+        head_embs = model.head_embedding.linear.weight_view_for_instruction(0) # len(heads), head_emb_dim
+        return torch.sum(torch.pow(head_embs, 2))

@@ -478,7 +478,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         "--regularization",
         help="type of regularization",
         default=None,
-        choices=[None, "l2_pairwise"],
+        choices=[None, "l2_pairwise", 'l2'],
     )
     parser.add_argument(
         "--reg_weight", help="weight of regularization", type=float, default=1e-5
