@@ -15,7 +15,7 @@ class Regularization(torch.nn.Module):
         self.reg_weight = reg_weight
 
     def forward(self, model: torch.nn.Module) -> torch.Tensor:
-        raise self.reg_weight * self.compute_regularization(model)
+        return self.reg_weight * self.compute_regularization(model)
 
     @abstractmethod
     def compute_regularization(self, model: torch.nn.Module) -> torch.Tensor:
@@ -26,7 +26,7 @@ class Regularization(torch.nn.Module):
 
 
 class L2PairwiseRegularization(Regularization):
-    def forward(self, model: torch.nn.Module) -> torch.Tensor:
+    def compute_regularization(self, model: torch.nn.Module) -> torch.Tensor:
         head_embs = model.head_embedding.linear.weight_view_for_instruction(0) # len(heads), head_emb_dim
         pairwise_differences = head_embs[:, None, :] - head_embs[None, :, :]
         return torch.sum(torch.pow(pairwise_differences, 2))
