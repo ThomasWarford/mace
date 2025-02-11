@@ -205,6 +205,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,  # recommended to be set to 8
     )
+    parser.add_argument(
+        "--head_emb_init",
+        help="Embedding init type. Options are constant and orthogonal",
+        type=str,
+        default=None,
+    )
     # add option to specify irreps by channel number and max L
     parser.add_argument(
         "--num_channels",

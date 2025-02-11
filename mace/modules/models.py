@@ -63,6 +63,7 @@ class MACE(torch.nn.Module):
         radial_type: Optional[str] = "bessel",
         heads: Optional[List[str]] = None,
         head_emb_dim: Optional[int] = None,
+        head_emb_init: Optional[str] = None,
         cueq_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
@@ -104,6 +105,34 @@ class MACE(torch.nn.Module):
                 irreps_out=o3.Irreps([(head_emb_dim, (0, 1))]),
             )
             self.readout_dim = head_emb_dim
+            # initialization of head embeddings
+            with torch.no_grad():
+                if head_emb_init == 'constant':
+                    torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
+                    self.head_embedding.linear.bias.requires_grad_(False)
+                    torch.nn.init.constant_(self.head_embedding.linear.weight, 1/torch.sqrt(head_emb_dim))
+                    print('using constant init:')
+                elif head_emb_init == 'zero':
+                    torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
+                    self.head_embedding.linear.bias.requires_grad_(False)
+                    torch.nn.init.constant_(self.head_embedding.linear.weight, 0)
+                    print('using zero init:')
+                elif head_emb_init == 'orthogonal':
+                    torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
+                    self.head_embedding.linear.bias.requires_grad_(False)
+                    torch.nn.init.orthogonal_(self.head_embedding.linear.weight)
+                    print('using orthogonal init:')
+                elif head_emb_init == 'one_hot':
+                    torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
+                    self.head_embedding.linear.bias.requires_grad_(False)
+                    self.head_embedding.linear.weight.copy_(torch.eye(len(heads), head_emb_dim))
+                    print('using one_hot init:')
+                elif head_emb_init == 'xavier':
+                    torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
+                    self.head_embedding.linear.bias.requires_grad_(False)
+                    torch.nn.init.xavier_(self.head_embedding.linear.weight,)
+                    print('using xavier init')
+                print(self.head_embedding.linear.weight.view(len(heads), -1).tolist())
         edge_feats_irreps = o3.Irreps(f"{self.radial_embedding.out_dim}x0e")
         if pair_repulsion:
             self.pair_repulsion_fn = ZBLBasis(r_max=r_max, p=num_polynomial_cutoff)
