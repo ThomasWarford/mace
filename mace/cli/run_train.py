@@ -186,6 +186,10 @@ def run(args: argparse.Namespace) -> None:
     else:
         args.heads = prepare_default_head(args)
 
+    if args.head_emb_dim:
+        logging.info(f'head_emb_dim: {args.head_emb_dim}')
+        logging.info(f"head_emb_init: {args.head_emb_init}")
+
     logging.info("===========LOADING INPUT DATA===========")
     heads = list(args.heads.keys())
     logging.info(f"Using heads: {heads}")
