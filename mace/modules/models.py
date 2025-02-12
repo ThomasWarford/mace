@@ -26,6 +26,8 @@ from .blocks import (
     NonLinearReadoutBlock,
     RadialEmbeddingBlock,
     ScaleShiftBlock,
+    ConcatenationCombinerBlock,
+    AttentionCombinerBlock
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -212,6 +214,13 @@ class MACE(torch.nn.Module):
                 use_sc=True,
                 cueq_config=cueq_config,
             )
+            if head_emb_method == "attention":
+                combiner = AttentionCombinerBlock(hidden_irreps_out, head_emb_dim)
+            elif head_emb_method == 'concatenate':
+                combiner = ConcatenationCombinerBlock(hidden_irreps_out, head_emb_dim)
+            else:
+                raise Exception('Get your args right!')
+
             self.products.append(prod)
             if i == num_interactions - 2:
                 self.readouts.append(
@@ -220,15 +229,14 @@ class MACE(torch.nn.Module):
                         MLP_irreps,
                         gate,
                         o3.Irreps(f"0e"),
-                        head_emb_dim,
-                        len(heads),
+                        combiner,
                         cueq_config,
                     )
                 )
             else:
                 self.readouts.append(
                     LinearReadoutBlock(
-                        hidden_irreps, o3.Irreps(f"{self.readout_dim}x0e"), cueq_config
+                        hidden_irreps, o3.Irreps(f"1x0e"), combiner, cueq_config
                     )
                 )
 
