@@ -6,6 +6,7 @@
 
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
+import math
 import numpy as np
 import torch
 from e3nn import o3
@@ -110,7 +111,7 @@ class MACE(torch.nn.Module):
                 if head_emb_init == 'constant':
                     torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
                     self.head_embedding.linear.bias.requires_grad_(False)
-                    torch.nn.init.constant_(self.head_embedding.linear.weight, 1/torch.sqrt(head_emb_dim))
+                    torch.nn.init.constant_(self.head_embedding.linear.weight, 1/math.sqrt(head_emb_dim))
                     print('using constant init:')
                 elif head_emb_init == 'zero':
                     torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
@@ -125,12 +126,12 @@ class MACE(torch.nn.Module):
                 elif head_emb_init == 'one_hot':
                     torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
                     self.head_embedding.linear.bias.requires_grad_(False)
-                    self.head_embedding.linear.weight.copy_(torch.eye(len(heads), head_emb_dim))
+                    self.head_embedding.linear.weight.copy_(torch.eye(len(heads), head_emb_dim).flatten())
                     print('using one_hot init:')
                 elif head_emb_init == 'xavier':
                     torch.nn.init.constant_(self.head_embedding.linear.bias, 0.)
                     self.head_embedding.linear.bias.requires_grad_(False)
-                    torch.nn.init.xavier_(self.head_embedding.linear.weight,)
+                    torch.nn.init.xavier_normal_(self.head_embedding.linear.weight.view(len(heads), -1),)
                     print('using xavier init')
                 print(self.head_embedding.linear.weight.view(len(heads), -1).tolist())
         edge_feats_irreps = o3.Irreps(f"{self.radial_embedding.out_dim}x0e")
