@@ -166,6 +166,7 @@ def _build_model(
             heads=heads,
             head_emb_dim=args.head_emb_dim,
             head_emb_init=args.head_emb_init,
+            head_emb_method=args.head_emb_method,
         )
     if args.model == "ScaleShiftMACE":
         return modules.ScaleShiftMACE(
@@ -183,6 +184,7 @@ def _build_model(
             heads=heads,
             head_emb_dim=args.head_emb_dim,
             head_emb_init=args.head_emb_init,
+            head_emb_method=args.head_emb_method,
         )
     if args.model == "FoundationMACE":
         return modules.ScaleShiftMACE(**model_config_foundation)

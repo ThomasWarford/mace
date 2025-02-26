@@ -38,6 +38,85 @@ from .radial import (
 )
 
 
+
+@compile_mode("script")
+class AttentionCombinerBlock(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_descriptor: o3.Irreps, # irreps of the descriptor which is updated
+        embedding_dim: int = 1,
+        include_residual: bool = True,
+    ):
+        super().__init__()
+        embedding_irreps = o3.Irreps(f"{embedding_dim}x0e")
+        self.irreps_in = irreps_descriptor 
+        self.irreps_out = self.irreps_in
+        self.k = o3.Linear(irreps_in=embedding_irreps, irreps_out=irreps_descriptor)
+        self.q = o3.Linear(irreps_in=irreps_descriptor, irreps_out=irreps_descriptor)
+        self.v = o3.Linear(irreps_in=irreps_descriptor, irreps_out=irreps_descriptor)
+        self.softmax = torch.nn.Softmax(-1)
+        self.include_residual = include_residual
+    def forward(
+        self, x: torch.Tensor, node_heads_feats: torch.Tensor
+    ) -> torch.Tensor:  # [n_nodes, irreps_descriptor]
+        inp = x
+        k = self.k(node_heads_feats)
+        q = self.q(x)
+        v = self.v(x)
+        x = v*self.softmax(k*q)
+        if self.include_residual: x += inp
+        return x
+
+@compile_mode("script")
+class MultiheadAttentionCombinerBlock(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_descriptor: o3.Irreps, # irreps of the descriptor which is updated
+        embedding_dim: int = 1,
+        n_heads=1
+    ):
+        def float_to_int(x):
+            if x.is_integer():
+                return int(x)
+            else:
+                raise Exception
+        super().__init__()
+        self.irreps_in = irreps_descriptor 
+        self.irreps_out = self.irreps_in
+
+        self.n_heads = n_heads
+        irreps_per_block = o3.Irreps([(float_to_int(mul/n_heads), ir) for mul, ir in self.irreps_in])
+
+        self.attention_blocks = torch.nn.ModuleList([
+            AttentionCombinerBlock(irreps_per_block, embedding_dim, False)
+            for _ in range(n_heads)
+            ])
+    def forward(
+        self, x: torch.Tensor, node_heads_feats: torch.Tensor
+    ) -> torch.Tensor:  # [n_nodes, irreps_descriptor]
+        x_splits = torch.chunk(x, self.n_heads, dim=1) # Split the input tensor along the irreps_descriptor dimension
+        outputs = []
+        for block, x_split in zip(self.attention_blocks, x_splits):
+            outputs.append(block(x_split, node_heads_feats))
+        x = torch.cat(outputs, dim=1)  
+        return x
+
+@compile_mode("script")
+class ConcatenationCombinerBlock(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_descriptor: o3.Irreps, # irreps of the descriptor which is updated
+        embedding_dim: int = 1,
+    ):
+        super().__init__()
+        embedding_irreps = o3.Irreps(f"{embedding_dim}x0e")
+        self.irreps_in = irreps_descriptor 
+        self.irreps_out = self.irreps_in + embedding_irreps
+    def forward(
+        self, x: torch.Tensor, node_heads_feats: torch.Tensor
+    ) -> torch.Tensor:  # [n_nodes, irreps_descriptor]
+        return torch.cat((x, node_heads_feats), dim=-1)
+
 @compile_mode("script")
 class LinearNodeEmbeddingBlock(torch.nn.Module):
     def __init__(
@@ -64,9 +143,13 @@ class LinearReadoutBlock(torch.nn.Module):
         self,
         irreps_in: o3.Irreps,
         irrep_out: o3.Irreps = o3.Irreps("0e"),
+        combiner: Optional[torch.nn.Module] = None,
         cueq_config: Optional[CuEquivarianceConfig] = None,
     ):
         super().__init__()
+        if combiner:
+            self.combiner = combiner
+            irreps_in = combiner.irreps_out
         self.linear = Linear(
             irreps_in=irreps_in, irreps_out=irrep_out, cueq_config=cueq_config
         )
@@ -79,9 +162,7 @@ class LinearReadoutBlock(torch.nn.Module):
         ] = None,  # pylint: disable=unused-argument
     ) -> torch.Tensor:  # [n_nodes, irreps]  # [..., ]
         if node_heads_feats is not None:
-            return torch.einsum(
-                "...h, ...h->...", self.linear(x), node_heads_feats
-            ).unsqueeze(-1)
+            x = self.combiner(x, node_heads_feats)
         return self.linear(x)  # [n_nodes, 1]
 
 
@@ -94,15 +175,16 @@ class NonLinearReadoutBlock(torch.nn.Module):
         MLP_irreps: o3.Irreps,
         gate: Optional[Callable],
         irrep_out: o3.Irreps = o3.Irreps("0e"),
-        embedding_dim: int = 1,
-        num_heads: int = 1,
+        combiner: Optional[torch.nn.Module] = None,
         cueq_config: Optional[CuEquivarianceConfig] = None,
     ):
         super().__init__()
         print(f'{MLP_irreps=}')
-        self.hidden_irreps = (embedding_dim * MLP_irreps).simplify()
-        self.num_heads = num_heads
-        self.embedding_dim = embedding_dim
+        if combiner:
+            self.combiner = combiner
+            irreps_in = combiner.irreps_out
+
+        self.hidden_irreps = (MLP_irreps).simplify()
         self.num_mlp_irreps = MLP_irreps.count((0, 1))
         print(f'{self.num_mlp_irreps=}')
         self.linear_1 = Linear(
@@ -116,10 +198,9 @@ class NonLinearReadoutBlock(torch.nn.Module):
     def forward(
         self, x: torch.Tensor, node_heads_feats: Optional[torch.Tensor] = None
     ) -> torch.Tensor:  # [n_nodes, irreps]  # [..., ]
-        x = self.linear_1(x)
         if node_heads_feats is not None:
-            x = x.view(-1, self.num_mlp_irreps, self.embedding_dim)
-            x = torch.einsum("b...h, bh-> b...", x, node_heads_feats)
+            x = self.combiner(x, node_heads_feats)
+        x = self.linear_1(x)
         return self.linear_2(self.non_linearity(x))  # [n_nodes, len(heads)]
 
 

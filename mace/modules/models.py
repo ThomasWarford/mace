@@ -28,7 +28,8 @@ from .blocks import (
     RadialEmbeddingBlock,
     ScaleShiftBlock,
     ConcatenationCombinerBlock,
-    AttentionCombinerBlock
+    AttentionCombinerBlock,
+    MultiheadAttentionCombinerBlock
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -67,6 +68,7 @@ class MACE(torch.nn.Module):
         heads: Optional[List[str]] = None,
         head_emb_dim: Optional[int] = None,
         head_emb_init: Optional[str] = None,
+        head_emb_method: Optional[str] = None,
         cueq_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
@@ -182,9 +184,21 @@ class MACE(torch.nn.Module):
         self.products = torch.nn.ModuleList([prod])
 
         self.readouts = torch.nn.ModuleList()
+        
+        print(f"head_emb_method received: '{head_emb_method}'")
+        if head_emb_method == "attention":
+            combiner = AttentionCombinerBlock(hidden_irreps, head_emb_dim)
+        elif head_emb_method == 'concatenate':
+            combiner = ConcatenationCombinerBlock(hidden_irreps, head_emb_dim)
+        elif head_emb_method == "multiheadattention":
+            n_heads = 2
+            combiner = MultiheadAttentionCombinerBlock(hidden_irreps, head_emb_dim, n_heads=n_heads)
+        else:
+            print(head_emb_method)
+            raise Exception('Get your args right!')
         self.readouts.append(
             LinearReadoutBlock(
-                hidden_irreps, o3.Irreps(f"{self.readout_dim}x0e"), cueq_config
+                hidden_irreps, o3.Irreps(f"1x0e"), combiner, cueq_config
             )
         )
 
@@ -215,10 +229,13 @@ class MACE(torch.nn.Module):
                 use_sc=True,
                 cueq_config=cueq_config,
             )
+            print(f'{head_emb_method=}')
             if head_emb_method == "attention":
-                combiner = AttentionCombinerBlock(hidden_irreps_out, head_emb_dim)
+                combiner = AttentionCombinerBlock(o3.Irreps(hidden_irreps_out), head_emb_dim)
             elif head_emb_method == 'concatenate':
-                combiner = ConcatenationCombinerBlock(hidden_irreps_out, head_emb_dim)
+                combiner = ConcatenationCombinerBlock(o3.Irreps(hidden_irreps_out), head_emb_dim)
+            elif head_emb_method == "multiheadattention":
+                combiner = MultiheadAttentionCombinerBlock(o3.Irreps(hidden_irreps_out), head_emb_dim, n_heads=n_heads)
             else:
                 raise Exception('Get your args right!')
 
@@ -464,7 +481,6 @@ class ScaleShiftMACE(MACE):
             )
         else:
             pair_node_energy = torch.zeros_like(node_e0)
-
         # Interactions
         node_es_list = [pair_node_energy]
         node_feats_list = []

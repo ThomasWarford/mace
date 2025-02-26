@@ -211,6 +211,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
     )
+    parser.add_argument(
+        "--head_emb_method",
+        help="Method of combining head embedding with descriptors.",
+        type=str,
+        default=None,
+    )
     # add option to specify irreps by channel number and max L
     parser.add_argument(
         "--num_channels",
