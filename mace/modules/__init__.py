@@ -21,6 +21,7 @@ from .blocks import (
     RealAgnosticResidualInteractionBlock,
     ResidualElementDependentInteractionBlock,
     ScaleShiftBlock,
+    AttentionRangeMixingBlock,
 )
 from .loss import (
     DipoleSingleLoss,

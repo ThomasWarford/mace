@@ -213,7 +213,8 @@ def extract_config_mace_model(model: torch.nn.Module) -> Dict[str, Any]:
         "atomic_inter_scale": scale.cpu().numpy(),
         "atomic_inter_shift": shift.cpu().numpy(),
         "heads": heads,
-        "head_emb_dim": model.readout_dim if model.readout_dim != 1 else None # TODO check this w/ Ilyes
+        "head_emb_dim": model.readout_dim if model.readout_dim != 1 else None, # TODO check
+        "range_mixer":  model.range_mixer  # TODO check
     }
     print(f'{config=}')
     return config

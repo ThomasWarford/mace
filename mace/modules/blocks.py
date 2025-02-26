@@ -58,6 +58,55 @@ class LinearNodeEmbeddingBlock(torch.nn.Module):
         return self.linear(node_attrs)
 
 
+
+@compile_mode("script")
+class AttentionRangeMixingBlock(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_descriptor: o3.Irreps, # irreps of the descriptor which is updated
+        embedding_dim: int = 1,
+        include_residual: bool = True,
+        cueq_config: Optional[CuEquivarianceConfig] = None,
+    ):
+        super().__init__()
+        embedding_irreps = o3.Irreps(f"{embedding_dim}x0e")
+        self.irreps = irreps_descriptor 
+        linear_irreps = o3.Irreps(f"{self.irreps.count((0, 1))}x0e")
+        self.k = Linear(irreps_in=embedding_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
+        self.q = Linear(irreps_in=linear_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
+        self.v = Linear(irreps_in=linear_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
+        self.softmax = torch.nn.Softmax(-1)
+        self.include_residual = include_residual
+
+        self.scalar_mask = torch.zeros(self.irreps.dim, dtype=torch.bool)
+        for irrep, slice_ in zip(self.irreps, self.irreps.slices()):
+            if irrep[1] == (0, 1):
+                self.scalar_mask[slice_] = True
+    def forward(
+        self, x: torch.Tensor, node_heads_feats: torch.Tensor
+    ) -> torch.Tensor:  # [n_nodes, irreps_descriptor]
+        """
+        def slices(self):
+            s = []
+            i = 0
+            for mul_ir in self:
+                s.append(slice(i, i + mul_ir.dim))
+                i += mul_ir.dim
+            return s
+        """
+        
+
+        inp = x
+        k = self.k(node_heads_feats)
+        q = self.q(x[..., self.scalar_mask])
+        v = self.v(x[..., self.scalar_mask])
+        if self.include_residual:
+            x[..., self.scalar_mask] += v*self.softmax(k*q)
+        else:
+            x[..., self.scalar_mask] = v*self.softmax(k*q)
+        assert torch.equal(inp[..., ~self.scalar_mask], x[..., ~self.scalar_mask])
+        return x
+
 @compile_mode("script")
 class LinearReadoutBlock(torch.nn.Module):
     def __init__(

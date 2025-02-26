@@ -27,6 +27,7 @@ from .blocks import (
     NonLinearReadoutBlock,
     RadialEmbeddingBlock,
     ScaleShiftBlock,
+    AttentionRangeMixingBlock,
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -65,6 +66,7 @@ class MACE(torch.nn.Module):
         heads: Optional[List[str]] = None,
         head_emb_dim: Optional[int] = None,
         head_emb_init: Optional[str] = None,
+        range_mixer: Optional[str] = None,
         cueq_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
@@ -186,6 +188,8 @@ class MACE(torch.nn.Module):
             )
         )
 
+        node_feats_list_irreps = o3.Irreps() + hidden_irreps
+
         for i in range(num_interactions - 1):
             if i == num_interactions - 2:
                 hidden_irreps_out = str(
@@ -226,13 +230,26 @@ class MACE(torch.nn.Module):
                         cueq_config,
                     )
                 )
+                node_feats_list_irreps += hidden_irreps_out
+                print(f'{hidden_irreps_out=}')
+                print(f'{node_feats_list_irreps=}')
+
             else:
                 self.readouts.append(
                     LinearReadoutBlock(
                         hidden_irreps, o3.Irreps(f"{self.readout_dim}x0e"), cueq_config
                     )
                 )
-
+                print('ADDING LINEAR BLOCK')
+                node_feats_list_irreps += hidden_irreps
+                print(f'{hidden_irreps=}')
+                print(f'{node_feats_list_irreps=}')
+        print(f'{node_feats_list_irreps=}')
+        self.range_mixer=None
+        if range_mixer:
+            self.range_mixer = AttentionRangeMixingBlock(node_feats_list_irreps, head_emb_dim)
+        print(f'{self.range_mixer=}')
+        print(f'{self.readouts=}')
     def forward(
         self,
         data: Dict[str, torch.Tensor],
@@ -270,8 +287,7 @@ class MACE(torch.nn.Module):
                 edge_index=data["edge_index"],
                 num_graphs=num_graphs,
                 batch=data["batch"],
-            )
-
+            ) 
         # Atomic energies
         node_e0 = self.atomic_energies_fn(data["node_attrs"])[
             num_atoms_arange, node_heads
@@ -474,10 +490,18 @@ class ScaleShiftMACE(MACE):
                 node_feats=node_feats, sc=sc, node_attrs=data["node_attrs"]
             )
             node_feats_list.append(node_feats)
-            node_es_list.append(readout(node_feats, node_heads_feats).squeeze(-1))
-
+        # Store original feature sizes
+        feat_sizes = [nf.shape[-1] for nf in node_feats_list]
         # Concatenate node features
-        node_feats_out = torch.cat(node_feats_list, dim=-1)
+        node_feats_out = torch.cat(node_feats_list, dim=-1,)
+        if self.range_mixer:
+            node_feats_out = self.range_mixer(node_feats_out, node_heads_feats)
+
+        # Reverse concatenation
+        node_feats_list = list(torch.split(node_feats_out, feat_sizes, dim=-1))
+        for node_feats, readout in zip(node_feats_list, self.readouts):
+            node_es_list.append(readout(node_feats, node_heads_feats).squeeze(-1))
+    
         # Sum over interactions
         node_inter_es = torch.sum(
             torch.stack(node_es_list, dim=0), dim=0

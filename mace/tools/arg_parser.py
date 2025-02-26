@@ -211,6 +211,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
     )
+    parser.add_argument(
+        "--range_mixer",
+        help="Range mixer. Options are ['attention']",
+        type=str,
+        default=None,
+    )
     # add option to specify irreps by channel number and max L
     parser.add_argument(
         "--num_channels",
