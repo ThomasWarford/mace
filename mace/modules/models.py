@@ -247,7 +247,7 @@ class MACE(torch.nn.Module):
         print(f'{node_feats_list_irreps=}')
         self.range_mixer=None
         if range_mixer:
-            self.range_mixer = AttentionRangeMixingBlock(node_feats_list_irreps, head_emb_dim)
+            self.range_mixer = AttentionRangeMixingBlock(node_feats_list_irreps, head_emb_dim, cueq_config=cueq_config)
         print(f'{self.range_mixer=}')
         print(f'{self.readouts=}')
     def forward(
@@ -501,7 +501,7 @@ class ScaleShiftMACE(MACE):
         node_feats_list = list(torch.split(node_feats_out, feat_sizes, dim=-1))
         for node_feats, readout in zip(node_feats_list, self.readouts):
             node_es_list.append(readout(node_feats, node_heads_feats).squeeze(-1))
-    
+        node_heads_feats = None # to disable combination in readouts TODO: (hacky)
         # Sum over interactions
         node_inter_es = torch.sum(
             torch.stack(node_es_list, dim=0), dim=0
