@@ -72,10 +72,8 @@ class AttentionRangeMixingBlock(torch.nn.Module):
         self.ni = ni
         embedding_irreps = o3.Irreps(f"{embedding_dim}x0e")
         linear_irreps = o3.Irreps(f"{ni}x0e")
-        self.k_feat = Linear(irreps_in=linear_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
         self.k_emb = Linear(irreps_in=embedding_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
-        self.q = Linear(irreps_in=linear_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
-        self.v = Linear(irreps_in=linear_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
+        self.kqv_node_feats = Linear(irreps_in=linear_irreps, irreps_out=3*linear_irreps, cueq_config=cueq_config)
         self.softmax = torch.nn.Softmax(-1)
 
         self.scalar_mask = torch.zeros(irreps_descriptor.dim, dtype=torch.bool)
@@ -83,7 +81,7 @@ class AttentionRangeMixingBlock(torch.nn.Module):
             if irrep[1] == (0, 1):
                 self.scalar_mask[slice_] = True
 
-        # torch.nn.init.eye_(self.v.weight.view(ni, ni))
+        torch.nn.init.eye_(self.kqv_node_feats.weight.view(ni, 3*ni)[:, -ni:])
     def forward(
         self, x: torch.Tensor, node_heads_feats: torch.Tensor
     ) -> torch.Tensor:  # [n_nodes, irreps_descriptor]
@@ -93,10 +91,9 @@ class AttentionRangeMixingBlock(torch.nn.Module):
         batch_dim = x_scalar.shape[0]
 
         x_scalar = x_scalar.view(batch_dim, -1, self.ni)
-
-        k = self.k_feat(x_scalar) + self.k_emb(node_heads_feats)[:, None]
-        q = self.q(x_scalar)
-        v = self.v(x_scalar)
+        x_scalar = self.kqv_node_feats(x_scalar)
+        k, q, v = x_scalar.chunk(3, dim=-1)
+        k = k + self.k_emb(node_heads_feats)[:, None]
 
         s = (q@k.transpose(1,2)) * self.ni**-0.5
         x_scalar = s.softmax(dim=-1) @ v
