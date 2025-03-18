@@ -10,9 +10,13 @@ import ase.data
 import ase.io
 import numpy as np
 import torch
+from e3nn import o3
 
 from mace import data
 from mace.tools import torch_geometric, torch_tools, utils
+from mace.modules.utils import extract_invariant
+
+from tqdm import tqdm
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,6 +52,31 @@ def parse_args() -> argparse.Namespace:
         help="model outputs energy contributions for each body order, only supported for MACE, not ScaleShiftMACE",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--return_descriptors",
+        help="model outputs MACE descriptors",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--descriptor_num_layers",
+        help="number of layers to take descriptors from",
+        type=int,
+        default=-1,
+    )
+    parser.add_argument(
+        "--descriptor_aggregation_method",
+        help="method for aggregating node features",
+        type=str,
+        choices=["mean", "per_element_mean"],
+        default="mean",
+    )
+    parser.add_argument(
+        "--descriptor_invariants_only",
+        help="save invariant (l=0) descriptors only",
+        type=bool,
+        default=True,
     )
     parser.add_argument(
         "--info_prefix",
@@ -112,10 +141,11 @@ def run(args: argparse.Namespace) -> None:
     # Collect data
     energies_list = []
     contributions_list = []
+    descriptors_list = []
     stresses_list = []
     forces_collection = []
 
-    for batch in data_loader:
+    for batch in tqdm(data_loader):
         batch = batch.to(device)
         output = model(batch.to_dict(), compute_stress=args.compute_stress)
         energies_list.append(torch_tools.to_numpy(output["energy"]))
@@ -124,6 +154,45 @@ def run(args: argparse.Namespace) -> None:
 
         if args.return_contributions:
             contributions_list.append(torch_tools.to_numpy(output["contributions"]))
+        
+        if args.return_descriptors:
+            num_layers = args.descriptor_num_layers
+            irreps_out = o3.Irreps(str(model.products[0].linear.irreps_out))
+            l_max = irreps_out.lmax
+            num_invariant_features = irreps_out.dim // (l_max + 1) ** 2
+            per_layer_features = [irreps_out.dim for _ in range(int(model.num_interactions))]
+            per_layer_features[-1] = (
+                num_invariant_features  # Equivariant features not created for the last layer
+            )
+
+            descriptors = output['node_feats']
+
+            if args.descriptor_invariants_only:
+                descriptors = extract_invariant(
+                    descriptors,
+                    num_layers=num_layers,
+                    num_features=num_invariant_features,
+                    l_max=l_max,
+                    )
+
+            to_keep = np.sum(per_layer_features[:num_layers])
+            descriptors = descriptors[:, :to_keep].detach().cpu().numpy()
+
+            descriptors = np.split(
+                descriptors,
+                indices_or_sections=batch.ptr[1:],
+                axis=0,
+            )
+            descriptors = descriptors[:-1] # drop last as its empty
+            for descriptor in descriptors:
+                if args.descriptor_aggregation_method == 'mean':
+                    descriptor = np.mean(descriptor, axis=0)
+                elif args.descriptor_aggregation_method == 'per_element_mean':
+                    descriptor = {
+                        element: np.mean(descriptor[atoms.symbols == element], axis=0).tolist()
+                        for element in np.unique(atoms.symbols)
+                    }
+            descriptors_list.extend(descriptors) 
 
         forces = np.split(
             torch_tools.to_numpy(output["forces"]),
@@ -144,6 +213,10 @@ def run(args: argparse.Namespace) -> None:
     if args.return_contributions:
         contributions = np.concatenate(contributions_list, axis=0)
         assert len(atoms_list) == contributions.shape[0]
+    
+    if args.return_descriptors:
+        # no concatentation elements of descriptors_list have non-uniform shapes
+        assert len(atoms_list) == len(descriptors_list)
 
     # Store data in atoms objects
     for i, (atoms, energy, forces) in enumerate(zip(atoms_list, energies, forces_list)):
@@ -157,6 +230,8 @@ def run(args: argparse.Namespace) -> None:
         if args.return_contributions:
             atoms.info[args.info_prefix + "BO_contributions"] = contributions[i]
 
+        if args.return_descriptors:
+            atoms.info[args.info_prefix + "descriptors"] = descriptors_list[i]
     # Write atoms to output path
     ase.io.write(args.output, images=atoms_list, format="extxyz")
 
