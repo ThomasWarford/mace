@@ -126,114 +126,118 @@ def run(args: argparse.Namespace) -> None:
     except AttributeError:
         heads = None
 
-    data_loader = torch_geometric.dataloader.DataLoader(
-        dataset=[
+    # First, clear the output file if it exists
+    # This ensures we start with a clean file when appending
+    with open(args.output, 'w') as f:
+        pass
+
+    # Process data in batches to avoid memory issues
+    start_idx = 0
+    for batch_idx in range(0, len(configs), args.batch_size):
+        end_idx = min(batch_idx + args.batch_size, len(configs))
+        batch_configs = configs[batch_idx:end_idx]
+        batch_atoms = atoms_list[batch_idx:end_idx].copy()
+        
+        batch_data = [
             data.AtomicData.from_config(
                 config, z_table=z_table, cutoff=float(model.r_max), heads=heads
             )
-            for config in configs
-        ],
-        batch_size=args.batch_size,
-        shuffle=False,
-        drop_last=False,
-    )
-
-    # Collect data
-    energies_list = []
-    contributions_list = []
-    descriptors_list = []
-    stresses_list = []
-    forces_collection = []
-
-    for batch in tqdm(data_loader):
-        batch = batch.to(device)
-        output = model(batch.to_dict(), compute_stress=args.compute_stress)
-        energies_list.append(torch_tools.to_numpy(output["energy"]))
-        if args.compute_stress:
-            stresses_list.append(torch_tools.to_numpy(output["stress"]))
-
-        if args.return_contributions:
-            contributions_list.append(torch_tools.to_numpy(output["contributions"]))
+            for config in batch_configs
+        ]
         
-        if args.return_descriptors:
-            num_layers = args.descriptor_num_layers
-            irreps_out = o3.Irreps(str(model.products[0].linear.irreps_out))
-            l_max = irreps_out.lmax
-            num_invariant_features = irreps_out.dim // (l_max + 1) ** 2
-            per_layer_features = [irreps_out.dim for _ in range(int(model.num_interactions))]
-            per_layer_features[-1] = (
-                num_invariant_features  # Equivariant features not created for the last layer
-            )
-
-            descriptors = output['node_feats']
-
-            if args.descriptor_invariants_only:
-                descriptors = extract_invariant(
-                    descriptors,
-                    num_layers=num_layers,
-                    num_features=num_invariant_features,
-                    l_max=l_max,
-                    )
-
-            to_keep = np.sum(per_layer_features[:num_layers])
-            descriptors = descriptors[:, :to_keep].detach().cpu().numpy()
-
-            descriptors = np.split(
-                descriptors,
+        # Create a dataloader for just this batch
+        data_loader = torch_geometric.dataloader.DataLoader(
+            dataset=batch_data,
+            batch_size=args.batch_size,
+            shuffle=False,
+            drop_last=False,
+        )
+        
+        # Process this batch
+        for batch in tqdm(data_loader):
+            batch = batch.to(device)
+            output = model(batch.to_dict(), compute_stress=args.compute_stress)
+            
+            energies = torch_tools.to_numpy(output["energy"])
+            
+            forces = np.split(
+                torch_tools.to_numpy(output["forces"]),
                 indices_or_sections=batch.ptr[1:],
                 axis=0,
             )
-            descriptors = descriptors[:-1] # drop last as its empty
-            for descriptor in descriptors:
-                if args.descriptor_aggregation_method == 'mean':
-                    descriptor = np.mean(descriptor, axis=0)
-                elif args.descriptor_aggregation_method == 'per_element_mean':
-                    descriptor = {
-                        element: np.mean(descriptor[atoms.symbols == element], axis=0).tolist()
-                        for element in np.unique(atoms.symbols)
-                    }
-            descriptors_list.extend(descriptors) 
+            forces = forces[:-1]  # drop last as its empty
+            
+            if args.compute_stress:
+                stresses = torch_tools.to_numpy(output["stress"])
+            
+            if args.return_contributions:
+                contributions = torch_tools.to_numpy(output["contributions"])
+            
+            if args.return_descriptors:
+                num_layers = args.descriptor_num_layers
+                irreps_out = o3.Irreps(str(model.products[0].linear.irreps_out))
+                l_max = irreps_out.lmax
+                num_invariant_features = irreps_out.dim // (l_max + 1) ** 2
+                per_layer_features = [irreps_out.dim for _ in range(int(model.num_interactions))]
+                per_layer_features[-1] = (
+                    num_invariant_features  # Equivariant features not created for the last layer
+                )
 
-        forces = np.split(
-            torch_tools.to_numpy(output["forces"]),
-            indices_or_sections=batch.ptr[1:],
-            axis=0,
-        )
-        forces_collection.append(forces[:-1])  # drop last as its empty
+                descriptors = output['node_feats']
 
-    energies = np.concatenate(energies_list, axis=0)
-    forces_list = [
-        forces for forces_list in forces_collection for forces in forces_list
-    ]
-    assert len(atoms_list) == len(energies) == len(forces_list)
-    if args.compute_stress:
-        stresses = np.concatenate(stresses_list, axis=0)
-        assert len(atoms_list) == stresses.shape[0]
+                if args.descriptor_invariants_only:
+                    descriptors = extract_invariant(
+                        descriptors,
+                        num_layers=num_layers,
+                        num_features=num_invariant_features,
+                        l_max=l_max,
+                        )
 
-    if args.return_contributions:
-        contributions = np.concatenate(contributions_list, axis=0)
-        assert len(atoms_list) == contributions.shape[0]
-    
-    if args.return_descriptors:
-        # no concatentation elements of descriptors_list have non-uniform shapes
-        assert len(atoms_list) == len(descriptors_list)
+                to_keep = np.sum(per_layer_features[:num_layers])
+                descriptors = descriptors[:, :to_keep].detach().cpu().numpy()
 
-    # Store data in atoms objects
-    for i, (atoms, energy, forces) in enumerate(zip(atoms_list, energies, forces_list)):
-        atoms.calc = None  # crucial
-        atoms.info[args.info_prefix + "energy"] = energy
-        atoms.arrays[args.info_prefix + "forces"] = forces
+                descriptors = np.split(
+                    descriptors,
+                    indices_or_sections=batch.ptr[1:],
+                    axis=0,
+                )
+                descriptors = descriptors[:-1]  # drop last as its empty
+                
+                processed_descriptors = []
+                for i, descriptor in enumerate(descriptors):
+                    atoms = batch_atoms[i]
+                    if args.descriptor_aggregation_method == 'mean':
+                        descriptor = np.mean(descriptor, axis=0)
+                    elif args.descriptor_aggregation_method == 'per_element_mean':
+                        descriptor = {
+                            element: np.mean(descriptor[np.array(atoms.get_chemical_symbols()) == element], axis=0).tolist()
+                            for element in np.unique(atoms.get_chemical_symbols())
+                        }
+                    processed_descriptors.append(descriptor)
+            
+            # Store results in atoms objects
+            for i, (atoms, energy, force) in enumerate(zip(batch_atoms, energies, forces)):
+                atoms.calc = None  # crucial
+                atoms.info[args.info_prefix + "energy"] = energy
+                atoms.arrays[args.info_prefix + "forces"] = force
 
-        if args.compute_stress:
-            atoms.info[args.info_prefix + "stress"] = stresses[i]
+                if args.compute_stress:
+                    atoms.info[args.info_prefix + "stress"] = stresses[i]
 
-        if args.return_contributions:
-            atoms.info[args.info_prefix + "BO_contributions"] = contributions[i]
+                if args.return_contributions:
+                    atoms.info[args.info_prefix + "BO_contributions"] = contributions[i]
 
-        if args.return_descriptors:
-            atoms.info[args.info_prefix + "descriptors"] = descriptors_list[i]
-    # Write atoms to output path
-    ase.io.write(args.output, images=atoms_list, format="extxyz")
+                if args.return_descriptors:
+                    atoms.info[args.info_prefix + "descriptors"] = processed_descriptors[i]
+            
+            # Write this batch to file with append=True
+            ase.io.write(args.output, images=batch_atoms, format="extxyz", append=True)
+            # Free memory
+            del batch, output
+            if 'descriptors' in locals():
+                del descriptors, processed_descriptors
+            torch.cuda.empty_cache()
+
 
 
 if __name__ == "__main__":
