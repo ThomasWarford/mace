@@ -15,6 +15,7 @@ from e3nn import o3
 from mace import data
 from mace.tools import torch_geometric, torch_tools, utils
 from mace.modules.utils import extract_invariant
+from itertools import islice
 
 from tqdm import tqdm
 
@@ -98,6 +99,9 @@ def main() -> None:
     args = parse_args()
     run(args)
 
+def next_n_items(iterator, n):
+    items = list(islice(iterator, n))
+    return items if items else None
 
 def run(args: argparse.Namespace) -> None:
     torch_tools.set_default_dtype(args.default_dtype)
@@ -113,11 +117,7 @@ def run(args: argparse.Namespace) -> None:
         param.requires_grad = False
 
     # Load data and prepare input
-    atoms_list = ase.io.read(args.configs, index=":")
-    if args.head is not None:
-        for atoms in atoms_list:
-            atoms.info["head"] = args.head
-    configs = [data.config_from_atoms(atoms) for atoms in atoms_list]
+    atoms_iter = ase.io.iread(args.configs, index=":")
 
     z_table = utils.AtomicNumberTable([int(z) for z in model.atomic_numbers])
 
@@ -133,10 +133,13 @@ def run(args: argparse.Namespace) -> None:
 
     # Process data in batches to avoid memory issues
     start_idx = 0
-    for batch_idx in range(0, len(configs), args.batch_size):
-        end_idx = min(batch_idx + args.batch_size, len(configs))
-        batch_configs = configs[batch_idx:end_idx]
-        batch_atoms = atoms_list[batch_idx:end_idx].copy()
+    batch_configs = True
+    while batch_configs:
+        batch_atoms = next_n_items(atoms_iter, 10*args.batch_size)
+        if args.head is not None:
+            for atoms in batch_configs:
+                atoms.info["head"] = args.head
+        batch_configs = [data.config_from_atoms(atoms) for atoms in batch_atoms]
         
         batch_data = [
             data.AtomicData.from_config(
@@ -152,26 +155,36 @@ def run(args: argparse.Namespace) -> None:
             shuffle=False,
             drop_last=False,
         )
+
+        energies_list = []
+        forces_list = []
+        stresses_list = []
+        contributions_list = []
+        descriptors_list = []
         
         # Process this batch
         for batch in tqdm(data_loader):
             batch = batch.to(device)
             output = model(batch.to_dict(), compute_stress=args.compute_stress)
             
-            energies = torch_tools.to_numpy(output["energy"])
+            energies_list.extend(torch_tools.to_numpy(output["energy"]))
             
             forces = np.split(
                 torch_tools.to_numpy(output["forces"]),
                 indices_or_sections=batch.ptr[1:],
                 axis=0,
             )
-            forces = forces[:-1]  # drop last as its empty
+            print(forces[1].shape)
+            print(forces[-1].shape)
+            print(batch.ptr)
+            print(len(forces))
+            forces_list.extend(forces[:-1])  # drop last as its empty
             
             if args.compute_stress:
-                stresses = torch_tools.to_numpy(output["stress"])
+                stresses_list.extend(torch_tools.to_numpy(output["stress"]))
             
             if args.return_contributions:
-                contributions = torch_tools.to_numpy(output["contributions"])
+                contributions_list.extend(torch_tools.to_numpy(output["contributions"]))
             
             if args.return_descriptors:
                 num_layers = args.descriptor_num_layers
@@ -203,7 +216,7 @@ def run(args: argparse.Namespace) -> None:
                 )
                 descriptors = descriptors[:-1]  # drop last as its empty
                 
-                processed_descriptors = []
+                
                 for i, descriptor in enumerate(descriptors):
                     atoms = batch_atoms[i]
                     if args.descriptor_aggregation_method == 'mean':
@@ -213,30 +226,38 @@ def run(args: argparse.Namespace) -> None:
                             element: np.mean(descriptor[np.array(atoms.get_chemical_symbols()) == element], axis=0).tolist()
                             for element in np.unique(atoms.get_chemical_symbols())
                         }
-                    processed_descriptors.append(descriptor)
+                descriptors_list.extend(descriptors)
             
             # Store results in atoms objects
-            for i, (atoms, energy, force) in enumerate(zip(batch_atoms, energies, forces)):
-                atoms.calc = None  # crucial
-                atoms.info[args.info_prefix + "energy"] = energy
-                atoms.arrays[args.info_prefix + "forces"] = force
+        for i, (atoms, energy, force) in enumerate(zip(batch_atoms, energies_list, forces_list)):
+            atoms.calc = None  # crucial
+            atoms.info[args.info_prefix + "energy"] = energy
+            atoms.arrays[args.info_prefix + "forces"] = force
 
-                if args.compute_stress:
-                    atoms.info[args.info_prefix + "stress"] = stresses[i]
+            if args.compute_stress:
+                atoms.info[args.info_prefix + "stress"] = stresses_list[i]
 
-                if args.return_contributions:
-                    atoms.info[args.info_prefix + "BO_contributions"] = contributions[i]
+            if args.return_contributions:
+                atoms.info[args.info_prefix + "BO_contributions"] = contributions_list[i]
 
-                if args.return_descriptors:
-                    atoms.info[args.info_prefix + "descriptors"] = processed_descriptors[i]
-            
-            # Write this batch to file with append=True
-            ase.io.write(args.output, images=batch_atoms, format="extxyz", append=True)
-            # Free memory
-            del batch, output
-            if 'descriptors' in locals():
-                del descriptors, processed_descriptors
-            torch.cuda.empty_cache()
+            if args.return_descriptors:
+                descriptor = descriptors_list[i]
+                if args.descriptor_aggregation_method == 'mean':
+                    descriptor = np.mean(descriptor, axis=0)
+                elif args.descriptor_aggregation_method == 'per_element_mean':
+                    descriptor = {
+                        element: np.mean(descriptor[np.array(atoms.get_chemical_symbols()) == element], axis=0).tolist()
+                        for element in np.unique(atoms.get_chemical_symbols())
+                    }
+                atoms.info[args.info_prefix + "descriptors"] = descriptor
+        
+        # Write this batch to file with append=True
+        ase.io.write(args.output, images=batch_atoms, format="extxyz", append=True)
+        # # Free memory
+        # del batch, output
+        # if 'descriptors' in locals():
+        #     del descriptors, processed_descriptors
+        # torch.cuda.empty_cache()
 
 
 
