@@ -141,12 +141,13 @@ def run(args: argparse.Namespace) -> None:
 
     # Process data in batches to avoid memory issues
     start_idx = 0
-    batches_per_iteration = 1000
+    batches_per_iteration = 100
     atoms_count = 1
     while batch_atoms := next_n_items(atoms_iter, batches_per_iteration * args.batch_size):
         if args.head is not None:
             for atoms in batch_configs:
                 atoms.info["head"] = args.head
+        caught_up = any(atoms)
         batch_configs = [data.config_from_atoms(atoms) for atoms in batch_atoms]
         batch_data = [
             data.AtomicData.from_config(
