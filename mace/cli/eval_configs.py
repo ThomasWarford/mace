@@ -68,10 +68,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--descriptor_aggregation_method",
-        help="method for aggregating node features",
+        help="method for aggregating node features. None saves descriptors for each atom.",
         type=str,
         choices=["mean", "per_element_mean"],
-        default="mean",
+        default=None,
     )
     parser.add_argument(
         "--descriptor_invariants_only",
@@ -135,7 +135,7 @@ def run(args: argparse.Namespace) -> None:
     start_idx = 0
     batch_configs = True
     while batch_configs:
-        batch_atoms = next_n_items(atoms_iter, 10*args.batch_size)
+        batch_atoms = next_n_items(atoms_iter, 1000*args.batch_size)
         if args.head is not None:
             for atoms in batch_configs:
                 atoms.info["head"] = args.head
@@ -174,10 +174,7 @@ def run(args: argparse.Namespace) -> None:
                 indices_or_sections=batch.ptr[1:],
                 axis=0,
             )
-            print(forces[1].shape)
-            print(forces[-1].shape)
-            print(batch.ptr)
-            print(len(forces))
+
             forces_list.extend(forces[:-1])  # drop last as its empty
             
             if args.compute_stress:
@@ -188,6 +185,8 @@ def run(args: argparse.Namespace) -> None:
             
             if args.return_descriptors:
                 num_layers = args.descriptor_num_layers
+                if num_layers == -1:
+                    num_layers = int(model.num_interactions)
                 irreps_out = o3.Irreps(str(model.products[0].linear.irreps_out))
                 l_max = irreps_out.lmax
                 num_invariant_features = irreps_out.dim // (l_max + 1) ** 2
@@ -214,19 +213,7 @@ def run(args: argparse.Namespace) -> None:
                     indices_or_sections=batch.ptr[1:],
                     axis=0,
                 )
-                descriptors = descriptors[:-1]  # drop last as its empty
-                
-                
-                for i, descriptor in enumerate(descriptors):
-                    atoms = batch_atoms[i]
-                    if args.descriptor_aggregation_method == 'mean':
-                        descriptor = np.mean(descriptor, axis=0)
-                    elif args.descriptor_aggregation_method == 'per_element_mean':
-                        descriptor = {
-                            element: np.mean(descriptor[np.array(atoms.get_chemical_symbols()) == element], axis=0).tolist()
-                            for element in np.unique(atoms.get_chemical_symbols())
-                        }
-                descriptors_list.extend(descriptors)
+                descriptors_list.extend(descriptors[:-1]) # drop last as its empty
             
             # Store results in atoms objects
         for i, (atoms, energy, force) in enumerate(zip(batch_atoms, energies_list, forces_list)):
@@ -242,14 +229,17 @@ def run(args: argparse.Namespace) -> None:
 
             if args.return_descriptors:
                 descriptor = descriptors_list[i]
-                if args.descriptor_aggregation_method == 'mean':
-                    descriptor = np.mean(descriptor, axis=0)
-                elif args.descriptor_aggregation_method == 'per_element_mean':
-                    descriptor = {
-                        element: np.mean(descriptor[np.array(atoms.get_chemical_symbols()) == element], axis=0).tolist()
-                        for element in np.unique(atoms.get_chemical_symbols())
-                    }
-                atoms.info[args.info_prefix + "descriptors"] = descriptor
+                if args.descriptor_aggregation_method:
+                    if args.descriptor_aggregation_method == 'mean':
+                        descriptor = np.mean(descriptor, axis=0)
+                    elif args.descriptor_aggregation_method == 'per_element_mean':
+                        descriptor = {
+                            element: np.mean(descriptor[np.array(atoms.get_chemical_symbols()) == element], axis=0).tolist()
+                            for element in np.unique(atoms.get_chemical_symbols())
+                        }
+                    atoms.info[args.info_prefix + "descriptors"] = descriptor
+                else:
+                    atoms.arrays[args.info_prefix + "descriptors"] = descriptor
         
         # Write this batch to file with append=True
         ase.io.write(args.output, images=batch_atoms, format="extxyz", append=True)
