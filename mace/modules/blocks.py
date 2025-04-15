@@ -11,6 +11,7 @@ import numpy as np
 import torch.nn.functional
 from e3nn import nn, o3
 from e3nn.util.jit import compile_mode
+from einops import rearrange
 
 from mace.modules.wrapper_ops import (
     CuEquivarianceConfig,
@@ -64,12 +65,64 @@ class AttentionRangeMixingBlock(torch.nn.Module):
         irreps_descriptor: o3.Irreps, # irreps of the descriptor which is updated
         embedding_dim: int = 1,
         ni: int = 128,
+        num_attention_heads = 16,
         cueq_config: Optional[CuEquivarianceConfig] = None,
     ):
         super().__init__()
         self.num_scalars = irreps_descriptor.count((0, 1))
         assert self.num_scalars % ni == 0
+        assert ni % num_attention_heads == 0
         self.ni = ni
+        self.num_attention_heads = num_attention_heads
+        embedding_irreps = o3.Irreps(f"{embedding_dim}x0e")
+        linear_irreps = o3.Irreps(f"{ni}x0e")
+        self.k_emb = Linear(irreps_in=embedding_irreps, irreps_out=o3.Irreps(f"{ni//num_attention_heads}x0e"), cueq_config=cueq_config)
+        self.kqv_node_feats = Linear(irreps_in=linear_irreps, irreps_out=3*linear_irreps, cueq_config=cueq_config)
+        self.softmax = torch.nn.Softmax(-1)
+
+        self.scalar_mask = torch.zeros(irreps_descriptor.dim, dtype=torch.bool)
+        for irrep, slice_ in zip(irreps_descriptor, irreps_descriptor.slices()):
+            if irrep[1] == (0, 1):
+                self.scalar_mask[slice_] = True
+
+        torch.nn.init.eye_(self.kqv_node_feats.weight.view(ni, 3*ni)[:, -ni:])
+    def forward(
+        self, x: torch.Tensor, node_heads_feats: torch.Tensor
+    ) -> torch.Tensor:  # [n_nodes, irreps_descriptor]
+        inp = x
+        x_scalar = x[..., self.scalar_mask]
+
+        batch_dim = x_scalar.shape[0]
+
+        x_scalar = x_scalar.view(batch_dim, -1, self.ni)
+        x_scalar = self.kqv_node_feats(x_scalar)
+        x_scalar = rearrange(x_scalar, 'n s (h d) -> (n h) s d', h=self.num_attention_heads) # h*d=3ni, s=num_scalar/3ni
+        k, q, v = x_scalar.chunk(3, dim=-1) # each has shape (nh, s, ni/h)
+        k = k + self.k_emb(node_heads_feats)[:, None] 
+        s = (q@k.transpose(1,2)) * self.ni**-0.5 # (nh, s, s)
+        x_scalar = s.softmax(dim=-1) @ v # (nh, s, ni/h)
+        x_scalar = rearrange(x_scalar, '(n h) s d -> n s (h d)', h=self.num_attention_heads) # (n, x.shape[1]/ni, ni)
+
+        x = torch.zeros_like(inp, )
+        x[..., self.scalar_mask] = x_scalar.view(batch_dim, -1)
+
+        return inp + x
+
+class MultiheadAttentionRangeMixingBlock(torch.nn.Module):
+    def __init__(
+        self,
+        irreps_descriptor: o3.Irreps, # irreps of the descriptor which is updated
+        embedding_dim: int = 1,
+        ni: int = 128,
+        num_attention_heads = 8,
+        cueq_config: Optional[CuEquivarianceConfig] = None,
+    ):
+        super().__init__(); self.name = 'multihead'
+        self.num_scalars = irreps_descriptor.count((0, 1))
+        assert self.num_scalars % ni == 0
+        assert ni % num_attention_heads == 0
+        self.ni = ni
+        self.num_attention_heads = num_attention_heads
         embedding_irreps = o3.Irreps(f"{embedding_dim}x0e")
         linear_irreps = o3.Irreps(f"{ni}x0e")
         self.k_emb = Linear(irreps_in=embedding_irreps, irreps_out=linear_irreps, cueq_config=cueq_config)
@@ -92,12 +145,19 @@ class AttentionRangeMixingBlock(torch.nn.Module):
 
         x_scalar = x_scalar.view(batch_dim, -1, self.ni)
         x_scalar = self.kqv_node_feats(x_scalar)
-        k, q, v = x_scalar.chunk(3, dim=-1)
-        k = k + self.k_emb(node_heads_feats)[:, None]
-
-        s = (q@k.transpose(1,2)) * self.ni**-0.5
-        x_scalar = s.softmax(dim=-1) @ v
-
+        k_emb = self.k_emb(node_heads_feats)[:, None] #########
+        print(k_emb.shape)
+        print(x_scalar.shape)
+        x_scalar = rearrange(x_scalar, 'n s (h d) -> (n h) s d', h=self.num_attention_heads) # h*d=3ni, s=num_scalar/3ni
+        k_emb = rearrange(k_emb, 'n s (h d) -> (n h) s d', h=self.num_attention_heads)
+        print(k_emb.shape)
+        print(x_scalar.shape)
+        k, q, v = x_scalar.chunk(3, dim=-1) # each has shape (nh, s, ni/h)
+        k = k + k_emb
+        s = (q@k.transpose(1,2)) * self.ni**-0.5 # (nh, s, s)
+        x_scalar = s.softmax(dim=-1) @ v # (nh, s, ni/h)
+        x_scalar = rearrange(x_scalar, '(n h) s d -> n s (h d)', h=self.num_attention_heads) # (n, x.shape[1]/ni, ni)
+        x_scalar.shape
         x = torch.zeros_like(inp, )
         x[..., self.scalar_mask] = x_scalar.view(batch_dim, -1)
 

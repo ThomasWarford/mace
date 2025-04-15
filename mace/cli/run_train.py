@@ -190,7 +190,7 @@ def run(args: argparse.Namespace) -> None:
         logging.info(f'head_emb_dim: {args.head_emb_dim}')
         logging.info(f"head_emb_init: {args.head_emb_init}")
     if args.range_mixer:
-        logging.info(f"range_mixer: {args.head_emb_init}")
+        logging.info(f"range_mixer: {args.range_mixer}")
 
     logging.info("===========LOADING INPUT DATA===========")
     heads = list(args.heads.keys())

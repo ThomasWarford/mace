@@ -22,6 +22,7 @@ from .blocks import (
     ResidualElementDependentInteractionBlock,
     ScaleShiftBlock,
     AttentionRangeMixingBlock,
+    MultiheadAttentionRangeMixingBlock,
 )
 from .loss import (
     DipoleSingleLoss,

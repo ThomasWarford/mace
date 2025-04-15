@@ -28,6 +28,7 @@ from .blocks import (
     RadialEmbeddingBlock,
     ScaleShiftBlock,
     AttentionRangeMixingBlock,
+    MultiheadAttentionRangeMixingBlock
 )
 from .utils import (
     compute_fixed_charge_dipole,
@@ -245,9 +246,12 @@ class MACE(torch.nn.Module):
                 print(f'{hidden_irreps=}')
                 print(f'{node_feats_list_irreps=}')
         print(f'{node_feats_list_irreps=}')
-        self.range_mixer=None
-        if range_mixer:
+        if range_mixer == 'attention':
             self.range_mixer = AttentionRangeMixingBlock(node_feats_list_irreps, head_emb_dim, cueq_config=cueq_config)
+        elif range_mixer == 'multihead':
+            self.range_mixer = MultiheadAttentionRangeMixingBlock(node_feats_list_irreps, head_emb_dim, num_attention_heads=4, cueq_config=cueq_config)
+        else:
+            raise ValueError
         print(f'{self.range_mixer=}')
         print(f'{self.readouts=}')
     def forward(
@@ -329,6 +333,7 @@ class MACE(torch.nn.Module):
         energies = [e0, pair_energy]
         node_energies_list = [node_e0, pair_node_energy]
         node_feats_list = []
+        node_head_feats = None
         for interaction, product, readout in zip(
             self.interactions, self.products, self.readouts
         ):
