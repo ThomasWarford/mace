@@ -41,7 +41,6 @@ class KeySpecification:
 
     @classmethod
     def from_defaults(cls):
-        print(f'{DefaultKeys.keydict()=}')
         instance = cls()
         return update_keyspec_from_kwargs(instance, DefaultKeys.keydict())
 
@@ -142,7 +141,6 @@ def config_from_atoms(
     head_name: str = "Default",
 ) -> Configuration:
     """Convert ase.Atoms to Configuration"""
-    print(f'{key_specification=}')
     if config_type_weights is None:
         config_type_weights = DEFAULT_CONFIG_TYPE_WEIGHTS
 

@@ -22,6 +22,4 @@ class DefaultKeys(Enum):
             else:
                 key_name = f"{member.name.lower()}_key"
                 key_dict[key_name] = member.value
-        print(key_dict['identifier_key'])
-        print(key_dict)
         return key_dict

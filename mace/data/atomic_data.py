@@ -264,7 +264,6 @@ class AtomicData(torch_geometric.data.Data):
             if config.properties.get("charges") is not None
             else torch.zeros(num_atoms, dtype=torch.get_default_dtype())
         )
-        print(f'{config.properties=}')
         identifier = config.properties.get("identifier", None)
 
         return cls(
