@@ -11,6 +11,7 @@ class DefaultKeys(Enum):
     DIPOLE = "dipole"
     HEAD = "head"
     CHARGES = "REF_charges"
+    IDENTIFIER = "sid"
 
     @staticmethod
     def keydict() -> dict[str, str]:
@@ -21,4 +22,6 @@ class DefaultKeys(Enum):
             else:
                 key_name = f"{member.name.lower()}_key"
                 key_dict[key_name] = member.value
+        print(key_dict['identifier_key'])
+        print(key_dict)
         return key_dict

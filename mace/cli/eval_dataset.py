@@ -10,11 +10,13 @@ from mace.modules.utils import extract_invariant
 import numpy as np
 import ase
 from npy_append_array import NpyAppendArray
+from mace.cli.convert_cueq_e3nn import run as run_cueq_to_e3nn
 
 def main():
     device = 'cuda'
     path = '/lustre/fsstor/projects/rech/gax/unh55hx/origin_data/data/salex/val'
-    model = mace_mp('/lustre/fswork/projects/rech/gax/ums98bp/.models/medium.model', device=device, return_raw_model=True)
+    model = mace_mp('/lustre/fswork/projects/rech/gax/ums98bp/.models/medium-omat-0.model', device=device, return_raw_model=True)
+    model = convert_e3nn_cueq(model)
     ds = LMDBDataset(
         path,
         float(model.r_max),
@@ -31,7 +33,7 @@ def main():
     save_descriptors(
         model,
         dataloader,
-        Path('/lustre/fswork/projects/rech/gax/ums98bp/eval_dataset/out'),
+        Path('/lustre/fswork/projects/rech/gax/ums98bp/eval_dataset/omat'),
         device,
     )
 

@@ -41,6 +41,7 @@ class KeySpecification:
 
     @classmethod
     def from_defaults(cls):
+        print(f'{DefaultKeys.keydict()=}')
         instance = cls()
         return update_keyspec_from_kwargs(instance, DefaultKeys.keydict())
 
@@ -49,7 +50,7 @@ def update_keyspec_from_kwargs(
     keyspec: KeySpecification, keydict: Dict[str, str]
 ) -> KeySpecification:
     # convert command line style property_key arguments into a keyspec
-    infos = ["energy_key", "stress_key", "virials_key", "dipole_key", "head_key"]
+    infos = ["energy_key", "stress_key", "virials_key", "dipole_key", "head_key", 'identifier_key']
     arrays = ["forces_key", "charges_key"]
     info_keys = {}
     arrays_keys = {}
@@ -141,6 +142,7 @@ def config_from_atoms(
     head_name: str = "Default",
 ) -> Configuration:
     """Convert ase.Atoms to Configuration"""
+    print(f'{key_specification=}')
     if config_type_weights is None:
         config_type_weights = DEFAULT_CONFIG_TYPE_WEIGHTS
 
@@ -160,6 +162,7 @@ def config_from_atoms(
         property_weights[name] = atoms.info.get(f"config_{name}_weight", 1.0)
 
     for name, atoms_key in key_specification.info_keys.items():
+        print(name, atoms_key)
         properties[name] = atoms.info.get(atoms_key, None)
         if not atoms_key in atoms.info:
             property_weights[name] = 0.0
