@@ -17,6 +17,7 @@ def main():
     path = '/lustre/fsn1/projects/rech/gax/ums98bp/salex/train'
     model = mace_mp('/lustre/fswork/projects/rech/gax/ums98bp/.models/medium-omat-0.model', device=device, return_raw_model=True)
     model = run_e3nn_to_cueq(model)
+    model.to(device)
     ds = LMDBDataset(
         path,
         float(model.r_max),

@@ -160,7 +160,6 @@ def config_from_atoms(
         property_weights[name] = atoms.info.get(f"config_{name}_weight", 1.0)
 
     for name, atoms_key in key_specification.info_keys.items():
-        print(name, atoms_key)
         properties[name] = atoms.info.get(atoms_key, None)
         if not atoms_key in atoms.info:
             property_weights[name] = 0.0
