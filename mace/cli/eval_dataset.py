@@ -14,7 +14,7 @@ from mace.cli.convert_e3nn_cueq import run as run_e3nn_to_cueq
 
 def main():
     device = 'cuda'
-    path = '/lustre/fsn1/projects/rech/gax/ums98bp/salex/train'
+    path = '/lustre/fsn1/projects/rech/gax/ums98bp/salex/val'
     model = mace_mp('/lustre/fswork/projects/rech/gax/ums98bp/.models/medium-omat-0.model', device=device, return_raw_model=True)
     model = run_e3nn_to_cueq(model)
     model.to(device)
@@ -34,7 +34,7 @@ def main():
     save_descriptors(
         model,
         dataloader,
-        Path('/lustre/fswork/projects/rech/gax/ums98bp/eval_dataset/omat'),
+        Path('/lustre/fswork/projects/rech/gax/ums98bp/eval_dataset/omat/val'),
         device,
     )
 
