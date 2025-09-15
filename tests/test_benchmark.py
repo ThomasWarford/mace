@@ -1,3 +1,13 @@
+"""
+Benchmark inference performance of the MACE medium model on GPU.
+
+Run benchmarks:
+    pytest benchmarks/test_inference.py --benchmark-json out.json
+
+Convert results to CSV:
+    python benchmarks/test_inference.py > results.csv
+"""
+
 import json
 import os
 from pathlib import Path
