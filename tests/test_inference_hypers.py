@@ -29,7 +29,10 @@ from mace import modules
 
 from e3nn import o3
 
-
+IRREP_COMBOS = []
+for scalar_irreps in [64, 128, 258]:
+    for vector_irreps in [16, 32, 64, 128]:
+        IRREP_COMBOS.append(f"{scalar_irreps}x0e+{vector_irreps}x1e")
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="cuda is not available")
 @pytest.mark.benchmark(warmup=True, warmup_iterations=4, min_rounds=8)
@@ -37,18 +40,20 @@ from e3nn import o3
 @pytest.mark.parametrize("dtype", ["float32", "float64"])
 @pytest.mark.parametrize("enable_cueq", [False, True])
 
-@pytest.mark.parametrize("max_ell", [2, 3, 4])
-@pytest.mark.parametrize("hidden_irreps", ['128x0e + 128x1o + 128x2e'])
-
-
+@pytest.mark.parametrize("num_interactions", [2, 3, 4]) # 4 only for single layer
+@pytest.mark.parametrize("max_ell", [2, 3, 4]) # 4 only for single layer
+@pytest.mark.parametrize("hidden_irreps", ['128x0e + 128x1o'])
+@pytest.mark.parametrize("correlation", [3, 4, 5, 6]) # 6 only for single layer
 def test_inference(
     benchmark, 
     size: int, 
     dtype: str, 
-    enable_cueq: bool, 
+    enable_cueq: bool,
 
+    num_interactions: int,
     max_ell: int,
-    hidden_irreps: o3.Irreps ,
+    hidden_irreps: o3.Irreps,
+    correlation: int,
 
     device: str = "cuda",
         ):
@@ -58,13 +63,17 @@ def test_inference(
             device,
             enable_cueq,
 
-            max_ell,
-            hidden_irreps,
+            num_interactions=num_interactions,
+            max_ell=max_ell,
+            hidden_irreps=hidden_irreps,
+            correlation=correlation
             )
         batch = create_batch(size, model, device)
         log_bench_info(benchmark, dtype, enable_cueq, 
+                       num_interactions=num_interactions,
                        max_ell=max_ell,
                        hidden_irreps=hidden_irreps,
+                       correlation=correlation,
                        batch=batch)
 
         def func():
@@ -79,8 +88,10 @@ def create_mace(
         device,
         enable_cueq,
 
+        num_interactions,
         max_ell,
         hidden_irreps,
+        correlation,
         ):
 
     z_table = AtomicNumberTable([6]) # TODO: generality
@@ -92,7 +103,7 @@ def create_mace(
         "max_ell": max_ell,
         "interaction_cls": modules.interaction_classes["RealAgnosticResidualInteractionBlock"],
         "interaction_cls_first": modules.interaction_classes["RealAgnosticResidualInteractionBlock"],
-        "num_interactions": 2,
+        "num_interactions": num_interactions,
         "num_elements": len(z_table),
         "hidden_irreps": o3.Irreps(hidden_irreps),
         "MLP_irreps": o3.Irreps("16x0e"),
@@ -100,7 +111,7 @@ def create_mace(
         "atomic_energies": torch.ones(len(z_table)),
         "avg_num_neighbors": 8,
         "atomic_numbers": z_table.zs,
-        "correlation": 3,
+        "correlation": correlation,
         "radial_type": "bessel",
         "cueq_config": None,
         "atomic_inter_scale": 1.0,
@@ -132,16 +143,21 @@ def create_batch(size: int, model: torch.nn.Module, device: str) -> dict:
 
 
 def log_bench_info(benchmark, dtype, enable_cueq, 
+                   num_interactions,
                    max_ell,
                    hidden_irreps,
+                   correlation,
                    batch):
     benchmark.extra_info["num_atoms"] = int(batch["positions"].shape[0])
     benchmark.extra_info["num_edges"] = int(batch["edge_index"].shape[1])
     benchmark.extra_info["dtype"] = dtype
     benchmark.extra_info["cueq_enabled"] = enable_cueq
 
+    benchmark.extra_info["num_interactions"] = num_interactions
     benchmark.extra_info["max_ell"] = max_ell
     benchmark.extra_info["hidden_irreps"] = hidden_irreps
+    benchmark.extra_info["correlation"] = correlation
+
 
     benchmark.extra_info["device_name"] = torch.cuda.get_device_name()
 
@@ -163,7 +179,12 @@ def process_benchmark_file(bench_file: Path) -> pd.DataFrame:
         "num_edges",
         "dtype",
         "cueq_enabled",
-        "is_compiled",
+
+        "num_interactions",
+        "max_ell",
+        "hidden_irreps",
+        "correlation",
+
         "device_name",
         "median",
         "Steps per day",
