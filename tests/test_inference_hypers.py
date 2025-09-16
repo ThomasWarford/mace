@@ -79,6 +79,9 @@ def test_inference(
     if (num_interactions > 1) and ((max_ell > 3) or correlation > 5):
         pytest.skip(f"Skipping; num_interactions:{num_interactions}, max_ell:{max_ell}, correlation:{correlation}")
 
+    if enable_cueq and (correlation > 3):
+        pytest.skip(f"Skipping; Correlation > 3 not supported with CUEQ")
+
     with torch_tools.default_dtype(dtype):
         model = create_mace(
             device,
